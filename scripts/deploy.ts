@@ -14,60 +14,86 @@ async function main() {
     const DerampStorage = await ethers.getContractFactory("DerampStorage");
     const storage = await DerampStorage.deploy();
     await storage.waitForDeployment();
-    console.log("✅ DerampStorage deployed to:", await storage.getAddress());
+    const storageAddress = await storage.getAddress();
+    console.log("✅ DerampStorage deployed to:", storageAddress);
 
     // 2. Deploy AccessManager
     console.log("\n🔐 Deploying AccessManager...");
     const AccessManager = await ethers.getContractFactory("AccessManager");
-    const accessManager = await AccessManager.deploy(storage.address);
-    await accessManager.deployed();
-    console.log("✅ AccessManager deployed to:", accessManager.address);
+    const accessManager = await AccessManager.deploy(storageAddress);
+    await accessManager.waitForDeployment();
+    const accessManagerAddress = await accessManager.getAddress();
+    console.log("✅ AccessManager deployed to:", accessManagerAddress);
 
     // 3. Deploy InvoiceManager
     console.log("\n📋 Deploying InvoiceManager...");
     const InvoiceManager = await ethers.getContractFactory("InvoiceManager");
     const invoiceManager = await InvoiceManager.deploy(
-      storage.address,
-      accessManager.address
+      storageAddress,
+      accessManagerAddress
     );
-    await invoiceManager.deployed();
-    console.log("✅ InvoiceManager deployed to:", invoiceManager.address);
+    await invoiceManager.waitForDeployment();
+    const invoiceManagerAddress = await invoiceManager.getAddress();
+    console.log("✅ InvoiceManager deployed to:", invoiceManagerAddress);
 
     // 4. Deploy PaymentProcessor
     console.log("\n💳 Deploying PaymentProcessor...");
     const PaymentProcessor = await ethers.getContractFactory("PaymentProcessor");
     const paymentProcessor = await PaymentProcessor.deploy(
-      storage.address,
-      accessManager.address
+      storageAddress,
+      accessManagerAddress
     );
-    await paymentProcessor.deployed();
-    console.log("✅ PaymentProcessor deployed to:", paymentProcessor.address);
+    await paymentProcessor.waitForDeployment();
+    const paymentProcessorAddress = await paymentProcessor.getAddress();
+    console.log("✅ PaymentProcessor deployed to:", paymentProcessorAddress);
 
-    // Note: TreasuryManager and WithdrawalManager have compilation issues
-    // We'll deploy them separately once fixed
+    // 5. Deploy TreasuryManager
+    console.log("\n🏦 Deploying TreasuryManager...");
+    const TreasuryManager = await ethers.getContractFactory("TreasuryManager");
+    const treasuryManager = await TreasuryManager.deploy(
+      storageAddress,
+      accessManagerAddress
+    );
+    await treasuryManager.waitForDeployment();
+    const treasuryManagerAddress = await treasuryManager.getAddress();
+    console.log("✅ TreasuryManager deployed to:", treasuryManagerAddress);
 
-    // 5. Deploy Proxy with available modules
+    // 6. Deploy WithdrawalManager
+    console.log("\n💰 Deploying WithdrawalManager...");
+    const WithdrawalManager = await ethers.getContractFactory("WithdrawalManager");
+    const withdrawalManager = await WithdrawalManager.deploy(
+      storageAddress,
+      accessManagerAddress
+    );
+    await withdrawalManager.waitForDeployment();
+    const withdrawalManagerAddress = await withdrawalManager.getAddress();
+    console.log("✅ WithdrawalManager deployed to:", withdrawalManagerAddress);
+
+    // 7. Deploy Proxy with all modules
     console.log("\n🔄 Deploying DerampProxy...");
     const DerampProxy = await ethers.getContractFactory("DerampProxy");
     const proxy = await DerampProxy.deploy(
-      storage.address,
-      accessManager.address,
-      invoiceManager.address,
-      paymentProcessor.address,
-      ethers.constants.AddressZero, // TreasuryManager placeholder
-      ethers.constants.AddressZero  // WithdrawalManager placeholder
+      storageAddress,
+      accessManagerAddress,
+      invoiceManagerAddress,
+      paymentProcessorAddress,
+      treasuryManagerAddress,
+      withdrawalManagerAddress
     );
-    await proxy.deployed();
-    console.log("✅ DerampProxy deployed to:", proxy.address);
+    await proxy.waitForDeployment();
+    const proxyAddress = await proxy.getAddress();
+    console.log("✅ DerampProxy deployed to:", proxyAddress);
 
-    // 6. Set proxy as authorized caller in storage
+    // 8. Set up permissions
     console.log("\n🔗 Setting up permissions...");
-    await storage.setAuthorizedCaller(proxy.address, true);
-    await storage.setAuthorizedCaller(invoiceManager.address, true);
-    await storage.setAuthorizedCaller(paymentProcessor.address, true);
+    await storage.setAuthorizedCaller(proxyAddress, true);
+    await storage.setAuthorizedCaller(invoiceManagerAddress, true);
+    await storage.setAuthorizedCaller(paymentProcessorAddress, true);
+    await storage.setAuthorizedCaller(treasuryManagerAddress, true);
+    await storage.setAuthorizedCaller(withdrawalManagerAddress, true);
     console.log("✅ Permissions configured");
 
-    // 7. Test basic functionality
+    // 9. Test basic functionality
     console.log("\n🧪 Testing basic functionality...");
     
     // Test token whitelist
@@ -84,22 +110,25 @@ async function main() {
 
     console.log("\n🎉 Deployment Summary:");
     console.log("==========================================");
-    console.log(`DerampStorage:     ${storage.address}`);
-    console.log(`AccessManager:     ${accessManager.address}`);
-    console.log(`InvoiceManager:    ${invoiceManager.address}`);
-    console.log(`PaymentProcessor:  ${paymentProcessor.address}`);
-    console.log(`DerampProxy:       ${proxy.address}`);
+    console.log(`DerampStorage:     ${storageAddress}`);
+    console.log(`AccessManager:     ${accessManagerAddress}`);
+    console.log(`InvoiceManager:    ${invoiceManagerAddress}`);
+    console.log(`PaymentProcessor:  ${paymentProcessorAddress}`);
+    console.log(`TreasuryManager:   ${treasuryManagerAddress}`);
+    console.log(`WithdrawalManager: ${withdrawalManagerAddress}`);
+    console.log(`DerampProxy:       ${proxyAddress}`);
     console.log("==========================================");
     
-    console.log("\n⚠️  Note: TreasuryManager and WithdrawalManager need compilation fixes");
-    console.log("✅ Core payment functionality is ready for testing!");
+    console.log("\n✅ Complete modular system deployed successfully!");
 
     return {
-      storage: storage.address,
-      accessManager: accessManager.address,
-      invoiceManager: invoiceManager.address,
-      paymentProcessor: paymentProcessor.address,
-      proxy: proxy.address
+      storage: storageAddress,
+      accessManager: accessManagerAddress,
+      invoiceManager: invoiceManagerAddress,
+      paymentProcessor: paymentProcessorAddress,
+      treasuryManager: treasuryManagerAddress,
+      withdrawalManager: withdrawalManagerAddress,
+      proxy: proxyAddress
     };
 
   } catch (error) {

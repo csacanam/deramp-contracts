@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { 
-  TreasuryManagerClean, 
+  TreasuryManager, 
   WithdrawalManager,
   DerampStorage, 
   AccessManager,
@@ -11,7 +11,7 @@ import {
 import { setupTestRoles, grantRoles, setupWhitelists, TestRoles, ROLE_CONSTANTS } from "./test-setup";
 
 describe("Treasury & Withdrawal Management", function () {
-  let treasuryManager: TreasuryManagerClean;
+  let treasuryManager: TreasuryManager;
   let withdrawalManager: WithdrawalManager;
   let storage: DerampStorage;
   let accessManager: AccessManager;
@@ -49,7 +49,7 @@ describe("Treasury & Withdrawal Management", function () {
       await accessManager.getAddress()
     );
 
-    const TreasuryManager = await ethers.getContractFactory("TreasuryManagerClean");
+    const TreasuryManager = await ethers.getContractFactory("TreasuryManager");
     treasuryManager = await TreasuryManager.deploy(
       await storage.getAddress(),
       await accessManager.getAddress()
@@ -63,7 +63,7 @@ describe("Treasury & Withdrawal Management", function () {
 
     // Set up permissions
     await storage.setModule("AccessManager", await accessManager.getAddress());
-    await storage.setModule("TreasuryManagerClean", await treasuryManager.getAddress());
+    await storage.setModule("TreasuryManager", await treasuryManager.getAddress());
     await storage.setModule("WithdrawalManager", await withdrawalManager.getAddress());
     await storage.setModule("PaymentProcessor", await paymentProcessor.getAddress());
     await storage.setModule("InvoiceManager", await invoiceManager.getAddress());

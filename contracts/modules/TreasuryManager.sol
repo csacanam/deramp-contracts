@@ -8,13 +8,15 @@ import "../interfaces/ITreasuryManager.sol";
 import "../interfaces/IAccessManager.sol";
 import "../storage/DerampStorage.sol";
 
-contract TreasuryManagerClean is Pausable, ITreasuryManager {
+contract TreasuryManager is Pausable, ITreasuryManager {
     using SafeERC20 for IERC20;
 
     DerampStorage public immutable storageContract;
     IAccessManager public immutable accessManager;
 
     bytes32 public constant DEFAULT_ADMIN_ROLE = 0x00;
+    bytes32 public constant TREASURY_MANAGER_ROLE =
+        keccak256("TREASURY_MANAGER_ROLE");
 
     modifier onlyOwner() {
         require(
@@ -24,15 +26,25 @@ contract TreasuryManagerClean is Pausable, ITreasuryManager {
         _;
     }
 
+    modifier onlyTreasuryManager() {
+        require(
+            accessManager.hasRole(TREASURY_MANAGER_ROLE, msg.sender),
+            "Not treasury manager"
+        );
+        _;
+    }
+
     constructor(address _storage, address _accessManager) {
         storageContract = DerampStorage(_storage);
         accessManager = IAccessManager(_accessManager);
     }
 
+    // === TREASURY WALLET MANAGEMENT ===
+
     function addTreasuryWallet(
         address wallet,
         string calldata description
-    ) external onlyOwner {
+    ) external onlyTreasuryManager {
         require(wallet != address(0), "Invalid wallet address");
 
         IDerampStorage.TreasuryWallet memory treasuryWallet = IDerampStorage
@@ -49,7 +61,7 @@ contract TreasuryManagerClean is Pausable, ITreasuryManager {
         emit IDerampStorage.TreasuryWalletAdded(wallet, description);
     }
 
-    function removeTreasuryWallet(address wallet) external onlyOwner {
+    function removeTreasuryWallet(address wallet) external onlyTreasuryManager {
         storageContract.removeTreasuryWalletFromList(wallet);
         emit IDerampStorage.TreasuryWalletRemoved(wallet);
     }
@@ -57,15 +69,17 @@ contract TreasuryManagerClean is Pausable, ITreasuryManager {
     function setTreasuryWalletStatus(
         address wallet,
         bool isActive
-    ) external onlyOwner {
+    ) external onlyTreasuryManager {
         storageContract.setTreasuryWalletStatus(wallet, isActive);
         emit IDerampStorage.TreasuryWalletStatusChanged(wallet, isActive);
     }
 
+    // === SERVICE FEE WITHDRAWALS ===
+
     function withdrawServiceFeesToTreasury(
         address token,
         address to
-    ) external onlyOwner whenNotPaused {
+    ) external onlyTreasuryManager whenNotPaused {
         uint256 amount = storageContract.getServiceFeeBalance(token);
         require(amount > 0, "No service fees to withdraw");
 
@@ -78,15 +92,21 @@ contract TreasuryManagerClean is Pausable, ITreasuryManager {
     function withdrawAllServiceFeesToTreasury(
         address[] calldata tokens,
         address to
-    ) external onlyOwner whenNotPaused {
+    ) external onlyTreasuryManager whenNotPaused {
+        require(tokens.length > 0, "No tokens provided");
+        uint256 totalWithdrawn = 0;
+
         for (uint256 i = 0; i < tokens.length; i++) {
             uint256 amount = storageContract.getServiceFeeBalance(tokens[i]);
             if (amount > 0) {
                 storageContract.subtractServiceFeeBalance(tokens[i], amount);
                 IERC20(tokens[i]).safeTransfer(to, amount);
                 emit IDerampStorage.ServiceFeeWithdrawn(tokens[i], amount, to);
+                totalWithdrawn++;
             }
         }
+
+        require(totalWithdrawn > 0, "No service fees to withdraw");
     }
 
     function withdrawServiceFees(
@@ -106,15 +126,23 @@ contract TreasuryManagerClean is Pausable, ITreasuryManager {
         address[] calldata tokens,
         address to
     ) external onlyOwner whenNotPaused {
+        require(tokens.length > 0, "No tokens provided");
+        uint256 totalWithdrawn = 0;
+
         for (uint256 i = 0; i < tokens.length; i++) {
             uint256 amount = storageContract.getServiceFeeBalance(tokens[i]);
             if (amount > 0) {
                 storageContract.subtractServiceFeeBalance(tokens[i], amount);
                 IERC20(tokens[i]).safeTransfer(to, amount);
                 emit IDerampStorage.ServiceFeeWithdrawn(tokens[i], amount, to);
+                totalWithdrawn++;
             }
         }
+
+        require(totalWithdrawn > 0, "No service fees to withdraw");
     }
+
+    // === VIEW FUNCTIONS ===
 
     function getTreasuryWallet(
         address wallet
@@ -159,6 +187,8 @@ contract TreasuryManagerClean is Pausable, ITreasuryManager {
             .getTreasuryWallet(wallet);
         return treasuryWallet.wallet != address(0) && treasuryWallet.isActive;
     }
+
+    // === SIMPLIFIED WITHDRAWAL FUNCTIONS ===
 
     function getServiceFeeWithdrawalIndices()
         external
@@ -283,10 +313,20 @@ contract TreasuryManagerClean is Pausable, ITreasuryManager {
         uint256[] memory indices = storageContract.getServiceFeeWithdrawals();
         totalWithdrawals = indices.length;
 
-        // Simplified implementation
+        // Simplified implementation - return empty arrays for complex analytics
         tokens = new address[](0);
         totalAmountByToken = new uint256[](0);
         treasuryWalletList = new address[](0);
         amountsByTreasury = new uint256[][](0);
+    }
+
+    // === ADMIN FUNCTIONS ===
+
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
     }
 }

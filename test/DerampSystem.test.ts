@@ -5,7 +5,7 @@ import {
   AccessManager, 
   InvoiceManager, 
   PaymentProcessor, 
-  TreasuryManagerClean, 
+  TreasuryManager, 
   WithdrawalManager, 
   DerampProxy 
 } from "../typechain-types";
@@ -16,7 +16,7 @@ describe("Deramp Modular System", function () {
   let accessManager: AccessManager;
   let invoiceManager: InvoiceManager;
   let paymentProcessor: PaymentProcessor;
-  let treasuryManager: TreasuryManagerClean;
+  let treasuryManager: TreasuryManager;
   let withdrawalManager: WithdrawalManager;
   let proxy: DerampProxy;
   let roles: TestRoles;
@@ -55,7 +55,7 @@ describe("Deramp Modular System", function () {
       await accessManager.getAddress()
     );
 
-    const TreasuryManager = await ethers.getContractFactory("TreasuryManagerClean");
+    const TreasuryManager = await ethers.getContractFactory("TreasuryManager");
     treasuryManager = await TreasuryManager.deploy(
       await storage.getAddress(),
       await accessManager.getAddress()
@@ -83,7 +83,7 @@ describe("Deramp Modular System", function () {
     await storage.setModule("DerampProxy", await proxy.getAddress());
     await storage.setModule("InvoiceManager", await invoiceManager.getAddress());
     await storage.setModule("PaymentProcessor", await paymentProcessor.getAddress());
-    await storage.setModule("TreasuryManagerClean", await treasuryManager.getAddress());
+    await storage.setModule("TreasuryManager", await treasuryManager.getAddress());
     await storage.setModule("WithdrawalManager", await withdrawalManager.getAddress());
 
     // Mint tokens for testing

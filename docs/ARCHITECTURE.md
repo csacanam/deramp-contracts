@@ -182,12 +182,12 @@ graph TB
     WithdrawalMgr --> Storage
     TreasuryMgr --> Storage
 
-    AccessMgr ..|> IAccessMgr
-    InvoiceMgr ..|> IInvoiceMgr
-    PaymentProc ..|> IPaymentProc
-    WithdrawalMgr ..|> IWithdrawalMgr
-    TreasuryMgr ..|> ITreasuryMgr
-    Storage ..|> IStorage
+    AccessMgr -.-> IAccessMgr
+    InvoiceMgr -.-> IInvoiceMgr
+    PaymentProc -.-> IPaymentProc
+    WithdrawalMgr -.-> IWithdrawalMgr
+    TreasuryMgr -.-> ITreasuryMgr
+    Storage -.-> IStorage
 
     PaymentProc --> ERC20
     WithdrawalMgr --> ERC20
@@ -431,17 +431,18 @@ sequenceDiagram
     AccessMgr->>AccessMgr: getRoleAdmin(TOKEN_MANAGER_ROLE)
     AccessMgr->>AccessMgr: check hasRole(DEFAULT_ADMIN_ROLE, Admin)
 
-    alt Admin has required role
+        alt Admin has required role
         AccessMgr->>+OZ: super.grantRole(role, alice)
         OZ->>OZ: update _roles mapping in Proxy
         OZ->>OZ: emit RoleGranted event
         OZ-->>-AccessMgr: role granted
-        AccessMgr-->>-Proxy: success
-        Proxy-->>-Admin: role granted successfully
+        AccessMgr-->>Proxy: success
     else Admin lacks required role
-        AccessMgr-->>-Proxy: revert("AccessControlUnauthorizedAccount")
-        Proxy-->>-Admin: error: unauthorized
+        AccessMgr-->>Proxy: revert("AccessControlUnauthorizedAccount")
     end
+
+    AccessMgr-->>-Proxy: complete
+    Proxy-->>-Admin: result
 ```
 
 ## Data Flow

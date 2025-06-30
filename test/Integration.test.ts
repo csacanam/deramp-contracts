@@ -6,7 +6,7 @@ import {
   AccessManager,
   InvoiceManager,
   PaymentProcessor,
-  TreasuryManagerClean,
+  TreasuryManager,
   WithdrawalManager
 } from "../typechain-types";
 import { setupTestRoles, grantRoles, setupWhitelists, TestRoles, ROLE_CONSTANTS } from "./test-setup";
@@ -17,7 +17,7 @@ describe("Deramp System Integration", function () {
   let accessManager: AccessManager;
   let invoiceManager: InvoiceManager;
   let paymentProcessor: PaymentProcessor;
-  let treasuryManager: TreasuryManagerClean;
+  let treasuryManager: TreasuryManager;
   let withdrawalManager: WithdrawalManager;
   let testToken: any;
   let testToken2: any;
@@ -51,7 +51,7 @@ describe("Deramp System Integration", function () {
       await accessManager.getAddress()
     );
 
-    const TreasuryManager = await ethers.getContractFactory("TreasuryManagerClean");
+    const TreasuryManager = await ethers.getContractFactory("TreasuryManager");
     treasuryManager = await TreasuryManager.deploy(
       await storage.getAddress(),
       await accessManager.getAddress()
@@ -79,7 +79,7 @@ describe("Deramp System Integration", function () {
     await storage.setModule("DerampProxy", await proxy.getAddress());
     await storage.setModule("InvoiceManager", await invoiceManager.getAddress());
     await storage.setModule("PaymentProcessor", await paymentProcessor.getAddress());
-    await storage.setModule("TreasuryManagerClean", await treasuryManager.getAddress());
+    await storage.setModule("TreasuryManager", await treasuryManager.getAddress());
     await storage.setModule("WithdrawalManager", await withdrawalManager.getAddress());
 
     // Grant roles and setup whitelists using standardized functions
