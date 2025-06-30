@@ -1,0 +1,1719 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
+contract DerampInvoice is Ownable, AccessControl, Pausable, ReentrancyGuard {
+    // Role definitions
+    bytes32 public constant ONBOARDING_ROLE = keccak256("ONBOARDING_ROLE");
+    bytes32 public constant TOKEN_MANAGER_ROLE =
+        keccak256("TOKEN_MANAGER_ROLE");
+    bytes32 public constant TREASURY_MANAGER_ROLE =
+        keccak256("TREASURY_MANAGER_ROLE");
+
+    enum Status {
+        PENDING,
+        PAID,
+        REFUNDED,
+        EXPIRED
+    }
+
+    enum WithdrawalType {
+        COMMERCE,
+        SERVICE_FEE
+    }
+
+    struct PaymentOption {
+        address token; // Address of the token
+        uint256 amount; // Amount required for this token
+    }
+
+    struct Invoice {
+        bytes32 id; // UUID from backend
+        address payer;
+        address commerce;
+        address paidToken; // Token used for payment (set when paid)
+        uint256 paidAmount; // Amount paid (set when paid)
+        Status status;
+        uint256 createdAt;
+        uint256 expiresAt; // Deadline to pay (0 = no expiration)
+        uint256 paidAt;
+        uint256 refundedAt;
+        uint256 expiredAt;
+    }
+
+    struct WithdrawalRecord {
+        address token;
+        uint256 amount;
+        address to;
+        address initiatedBy;
+        WithdrawalType withdrawalType;
+        uint256 createdAt;
+        bytes32 invoiceId; // Only for commerce withdrawals, empty for service fees
+    }
+
+    struct TreasuryWallet {
+        address wallet;
+        bool isActive;
+        uint256 addedAt;
+        string description; // Optional description for the treasury wallet
+    }
+
+    mapping(bytes32 => Invoice) public invoices;
+    mapping(bytes32 => PaymentOption[]) public invoicePaymentOptions; // invoiceId => payment options
+    mapping(address => mapping(address => uint256)) public balances; // commerce => token => amount
+    mapping(address => bool) public whitelistedTokens; // token => whitelisted
+    mapping(address => bool) public whitelistedCommerces; // commerce => whitelisted
+
+    // Fee system
+    uint256 public defaultFeePercent = 100; // 1% in basis points (10000 = 100%)
+    mapping(address => uint256) public commerceFees; // commerce => custom fee in basis points
+    mapping(address => uint256) public serviceFeeBalances; // token => accumulated service fees
+
+    // Commerce invoice tracking
+    mapping(address => bytes32[]) public commerceInvoices; // commerce => array of invoice IDs
+
+    // Treasury system
+    mapping(address => TreasuryWallet) public treasuryWallets; // wallet => treasury info
+    address[] public treasuryWalletsList; // Array to iterate through treasury wallets
+
+    // Withdrawal tracking
+    WithdrawalRecord[] public withdrawalHistory; // Complete withdrawal history
+    mapping(address => uint256[]) public commerceWithdrawals; // commerce => withdrawal indices
+    mapping(address => uint256[]) public treasuryWithdrawals; // treasury wallet => withdrawal indices
+    uint256[] public serviceFeeWithdrawals; // service fee withdrawal indices
+
+    event InvoiceCreated(bytes32 indexed id, address indexed commerce);
+    event InvoicePaid(
+        bytes32 indexed id,
+        address indexed payer,
+        address indexed token,
+        uint256 amount
+    );
+    event Withdrawn(
+        address indexed commerce,
+        address indexed token,
+        uint256 amount
+    );
+    event Refunded(
+        bytes32 indexed id,
+        address indexed payer,
+        address indexed token,
+        uint256 amount
+    );
+    event InvoiceExpired(bytes32 indexed id, address indexed commerce);
+    event FeeCollected(
+        bytes32 indexed invoiceId,
+        address indexed commerce,
+        address indexed token,
+        uint256 feeAmount,
+        uint256 feePercent
+    );
+    event ServiceFeeWithdrawn(
+        address indexed token,
+        uint256 amount,
+        address indexed to
+    );
+    event TokenRescued(
+        address indexed token,
+        uint256 amount,
+        address indexed to
+    );
+    event InvoiceCancelled(bytes32 indexed id, address indexed commerce);
+
+    // New events for treasury and withdrawal tracking
+    event TreasuryWalletAdded(address indexed wallet, string description);
+    event TreasuryWalletRemoved(address indexed wallet);
+    event TreasuryWalletStatusChanged(address indexed wallet, bool isActive);
+    event WithdrawalRecorded(
+        uint256 indexed withdrawalIndex,
+        address indexed token,
+        uint256 amount,
+        address indexed to,
+        WithdrawalType withdrawalType
+    );
+
+    constructor() Ownable(msg.sender) {
+        // Set up initial roles
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _grantRole(ONBOARDING_ROLE, msg.sender);
+        _grantRole(TOKEN_MANAGER_ROLE, msg.sender);
+        _grantRole(TREASURY_MANAGER_ROLE, msg.sender);
+
+        // Contract initialized with empty token whitelist
+        // Tokens must be manually added via addTokenToWhitelist()
+    }
+
+    // === EMERGENCY CONTROLS ===
+
+    /// @notice Pauses all critical contract functions
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    /// @notice Unpauses all contract functions
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
+    /// @notice Rescues tokens sent directly to contract by mistake
+    /// @dev Only rescues tokens that don't belong to commerce balances or service fees
+    /// @param token The token address to rescue
+    /// @param amount The amount to rescue
+    /// @param to The address to send rescued tokens to
+    function rescueToken(
+        address token,
+        uint256 amount,
+        address to
+    ) external onlyOwner {
+        require(to != address(0), "Invalid recipient address");
+
+        uint256 contractBalance = IERC20(token).balanceOf(address(this));
+        uint256 reservedBalance = getTotalReservedBalance(token);
+        uint256 rescuableAmount = contractBalance - reservedBalance;
+
+        require(amount <= rescuableAmount, "Cannot rescue reserved funds");
+        require(rescuableAmount > 0, "No tokens available for rescue");
+
+        IERC20(token).transfer(to, amount);
+        emit TokenRescued(token, amount, to);
+    }
+
+    /// @notice Gets total balance reserved for commerces and service fees
+    /// @param token The token address
+    /// @return Total reserved amount that cannot be rescued
+    function getTotalReservedBalance(
+        address token
+    ) public view returns (uint256) {
+        // Start with service fees
+        uint256 totalReserved = serviceFeeBalances[token];
+
+        // Add all commerce balances
+        // Note: This is a conservative approach. In production with many commerces,
+        // you might want to track active commerces separately for gas efficiency
+        // For now, we'll assume that any tokens beyond service fees belong to commerces
+
+        // Since we can't efficiently iterate through all commerces, we'll be conservative
+        // and assume the entire contract balance (minus service fees) belongs to commerces
+        uint256 contractBalance = IERC20(token).balanceOf(address(this));
+
+        // Conservative approach: if contract has more than service fees,
+        // assume the difference belongs to commerces
+        if (contractBalance > serviceFeeBalances[token]) {
+            totalReserved = contractBalance;
+        }
+
+        return totalReserved;
+    }
+
+    /// @notice Modifier to ensure only the commerce of a specific invoice can call the function
+    /// @param invoiceId The invoice ID to check commerce ownership
+    modifier onlyInvoiceCommerce(bytes32 invoiceId) {
+        require(invoices[invoiceId].id != bytes32(0), "Invoice not found");
+        require(
+            msg.sender == invoices[invoiceId].commerce,
+            "Not the invoice commerce"
+        );
+        _;
+    }
+
+    /// @notice Modifier to ensure the invoice exists
+    /// @param invoiceId The invoice ID to check existence
+    modifier invoiceExists(bytes32 invoiceId) {
+        require(invoices[invoiceId].id != bytes32(0), "Invoice not found");
+        _;
+    }
+
+    /// @notice Adds a token to the whitelist
+    /// @param token The token address to whitelist
+    function addTokenToWhitelist(
+        address token
+    ) external onlyRole(TOKEN_MANAGER_ROLE) {
+        whitelistedTokens[token] = true;
+    }
+
+    /// @notice Removes a token from the whitelist
+    /// @param token The token address to remove from whitelist
+    function removeTokenFromWhitelist(
+        address token
+    ) external onlyRole(TOKEN_MANAGER_ROLE) {
+        whitelistedTokens[token] = false;
+    }
+
+    /// @notice Checks if a token is whitelisted
+    /// @param token The token address to check
+    /// @return bool Whether the token is whitelisted
+    function isTokenWhitelisted(address token) external view returns (bool) {
+        return whitelistedTokens[token];
+    }
+
+    /// @notice Adds a commerce to the whitelist
+    /// @param commerce The commerce address to whitelist
+    function addCommerceToWhitelist(
+        address commerce
+    ) external onlyRole(ONBOARDING_ROLE) {
+        require(commerce != address(0), "Invalid commerce address");
+        whitelistedCommerces[commerce] = true;
+    }
+
+    /// @notice Removes a commerce from the whitelist
+    /// @param commerce The commerce address to remove from whitelist
+    function removeCommerceFromWhitelist(
+        address commerce
+    ) external onlyRole(ONBOARDING_ROLE) {
+        whitelistedCommerces[commerce] = false;
+    }
+
+    /// @notice Checks if a commerce is whitelisted
+    /// @param commerce The commerce address to check
+    /// @return bool Whether the commerce is whitelisted
+    function isCommerceWhitelisted(
+        address commerce
+    ) external view returns (bool) {
+        return whitelistedCommerces[commerce];
+    }
+
+    /// @notice Sets the default fee percentage for all commerces
+    /// @param feePercent Fee percentage in basis points (100 = 1%, 10000 = 100%)
+    function setDefaultFeePercent(uint256 feePercent) external onlyOwner {
+        require(feePercent <= 10000, "Fee cannot exceed 100%");
+        defaultFeePercent = feePercent;
+    }
+
+    /// @notice Sets a custom fee percentage for a specific commerce
+    /// @param commerce The commerce address
+    /// @param feePercent Fee percentage in basis points (100 = 1%, 10000 = 100%)
+    function setCommerceFee(
+        address commerce,
+        uint256 feePercent
+    ) external onlyRole(ONBOARDING_ROLE) {
+        require(feePercent <= 10000, "Fee cannot exceed 100%");
+        commerceFees[commerce] = feePercent;
+    }
+
+    /// @notice Gets the effective fee percentage for a commerce
+    /// @param commerce The commerce address
+    /// @return The fee percentage in basis points
+    function getCommerceFee(address commerce) public view returns (uint256) {
+        uint256 customFee = commerceFees[commerce];
+        return customFee > 0 ? customFee : defaultFeePercent;
+    }
+
+    // === BATCH OPERATIONS ===
+
+    /// @notice Adds multiple tokens to whitelist in one transaction
+    /// @param tokens Array of token addresses to whitelist
+    function addMultipleTokensToWhitelist(
+        address[] calldata tokens
+    ) external onlyRole(TOKEN_MANAGER_ROLE) {
+        for (uint256 i = 0; i < tokens.length; i++) {
+            whitelistedTokens[tokens[i]] = true;
+        }
+    }
+
+    /// @notice Removes multiple tokens from whitelist in one transaction
+    /// @param tokens Array of token addresses to remove from whitelist
+    function removeMultipleTokensFromWhitelist(
+        address[] calldata tokens
+    ) external onlyRole(TOKEN_MANAGER_ROLE) {
+        for (uint256 i = 0; i < tokens.length; i++) {
+            whitelistedTokens[tokens[i]] = false;
+        }
+    }
+
+    /// @notice Adds multiple commerces to whitelist in one transaction
+    /// @param commerces Array of commerce addresses to whitelist
+    function addMultipleCommercesToWhitelist(
+        address[] calldata commerces
+    ) external onlyRole(ONBOARDING_ROLE) {
+        for (uint256 i = 0; i < commerces.length; i++) {
+            require(commerces[i] != address(0), "Invalid commerce address");
+            whitelistedCommerces[commerces[i]] = true;
+        }
+    }
+
+    /// @notice Removes multiple commerces from whitelist in one transaction
+    /// @param commerces Array of commerce addresses to remove from whitelist
+    function removeMultipleCommercesFromWhitelist(
+        address[] calldata commerces
+    ) external onlyRole(ONBOARDING_ROLE) {
+        for (uint256 i = 0; i < commerces.length; i++) {
+            whitelistedCommerces[commerces[i]] = false;
+        }
+    }
+
+    /// @notice Sets custom fees for multiple commerces in one transaction
+    /// @param commerces Array of commerce addresses
+    /// @param feePercents Array of fee percentages in basis points
+    function setMultipleCommerceFees(
+        address[] calldata commerces,
+        uint256[] calldata feePercents
+    ) external onlyRole(ONBOARDING_ROLE) {
+        require(
+            commerces.length == feePercents.length,
+            "Array length mismatch"
+        );
+
+        for (uint256 i = 0; i < commerces.length; i++) {
+            require(feePercents[i] <= 10000, "Fee cannot exceed 100%");
+            commerceFees[commerces[i]] = feePercents[i];
+        }
+    }
+
+    /// @notice Creates multiple invoices in one transaction
+    /// @param ids Array of invoice IDs (UUIDs from backend)
+    /// @param commerces Array of commerce addresses
+    /// @param paymentOptionsArray Array of payment options arrays
+    /// @param expiresAtArray Array of expiration timestamps (0 = no expiration)
+    function createMultipleInvoices(
+        bytes32[] calldata ids,
+        address[] calldata commerces,
+        PaymentOption[][] calldata paymentOptionsArray,
+        uint256[] calldata expiresAtArray
+    ) external onlyOwner whenNotPaused {
+        require(ids.length == commerces.length, "Array length mismatch");
+        require(
+            ids.length == paymentOptionsArray.length,
+            "Array length mismatch"
+        );
+        require(ids.length == expiresAtArray.length, "Array length mismatch");
+
+        for (uint256 i = 0; i < ids.length; i++) {
+            createInvoice(
+                ids[i],
+                commerces[i],
+                paymentOptionsArray[i],
+                expiresAtArray[i]
+            );
+        }
+    }
+
+    /// @notice Creates a new invoice with unique ID (backend UUID) and payment options
+    /// @dev Only the contract owner (backend) can create invoices
+    /// @param id The invoice ID (UUID from backend)
+    /// @param commerce The commerce address
+    /// @param paymentOptions Array of payment options for this invoice
+    /// @param expiresAt Deadline to pay (0 = no expiration)
+    function createInvoice(
+        bytes32 id,
+        address commerce,
+        PaymentOption[] calldata paymentOptions,
+        uint256 expiresAt
+    ) public onlyOwner whenNotPaused {
+        require(invoices[id].id == bytes32(0), "Invoice already exists");
+        require(commerce != address(0), "Invalid commerce");
+        require(whitelistedCommerces[commerce], "Commerce not whitelisted");
+        require(
+            paymentOptions.length > 0,
+            "At least one payment option required"
+        );
+
+        // Validate all payment options
+        for (uint256 i = 0; i < paymentOptions.length; i++) {
+            require(
+                whitelistedTokens[paymentOptions[i].token],
+                "Token not whitelisted"
+            );
+            require(
+                paymentOptions[i].amount > 0,
+                "Amount must be greater than 0"
+            );
+        }
+
+        invoices[id] = Invoice({
+            id: id,
+            payer: address(0),
+            commerce: commerce,
+            paidToken: address(0),
+            paidAmount: 0,
+            status: Status.PENDING,
+            createdAt: block.timestamp,
+            expiresAt: expiresAt,
+            paidAt: 0,
+            refundedAt: 0,
+            expiredAt: 0
+        });
+
+        // Add all payment options
+        for (uint256 i = 0; i < paymentOptions.length; i++) {
+            invoicePaymentOptions[id].push(paymentOptions[i]);
+        }
+
+        // Track invoice for commerce
+        commerceInvoices[commerce].push(id);
+
+        emit InvoiceCreated(id, commerce);
+    }
+
+    /// @notice Pays the invoice with a specific token and amount
+    /// @param invoiceId The invoice ID
+    /// @param token The token address to pay with
+    /// @param amount The amount to pay
+    function payInvoice(
+        bytes32 invoiceId,
+        address token,
+        uint256 amount
+    ) external payable invoiceExists(invoiceId) whenNotPaused nonReentrant {
+        Invoice storage inv = invoices[invoiceId];
+        require(inv.status == Status.PENDING, "Invoice not payable");
+        require(
+            inv.expiresAt == 0 || block.timestamp <= inv.expiresAt,
+            "Invoice has expired"
+        );
+        require(whitelistedTokens[token], "Token not whitelisted");
+        require(amount > 0, "Amount must be greater than 0");
+
+        // Validate payment against payment options
+        PaymentOption[] memory options = invoicePaymentOptions[invoiceId];
+        bool validPayment = false;
+
+        for (uint256 i = 0; i < options.length; i++) {
+            if (options[i].token == token && options[i].amount == amount) {
+                validPayment = true;
+                break;
+            }
+        }
+
+        require(
+            validPayment,
+            "Invalid payment: token and amount must match a payment option"
+        );
+
+        // Transfer tokens from user to contract
+        IERC20(token).transferFrom(msg.sender, address(this), amount);
+
+        // Calculate service fee
+        uint256 feePercent = getCommerceFee(inv.commerce);
+        uint256 feeAmount = (amount * feePercent) / 10000;
+        uint256 commerceAmount = amount - feeAmount;
+
+        // Update balances
+        balances[inv.commerce][token] += commerceAmount;
+        serviceFeeBalances[token] += feeAmount;
+        inv.paidAmount = amount;
+
+        inv.status = Status.PAID;
+        inv.payer = msg.sender;
+        inv.paidToken = token;
+        inv.paidAt = block.timestamp;
+
+        emit InvoicePaid(invoiceId, msg.sender, token, amount);
+
+        if (feeAmount > 0) {
+            emit FeeCollected(
+                invoiceId,
+                inv.commerce,
+                token,
+                feeAmount,
+                feePercent
+            );
+        }
+    }
+
+    /// @notice The commerce withdraws their accumulated funds for a specific token
+    /// @param token The token address to withdraw
+    function withdraw(address token) external nonReentrant {
+        require(whitelistedTokens[token], "Token not whitelisted");
+        uint256 amount = balances[msg.sender][token];
+        require(amount > 0, "No funds");
+
+        balances[msg.sender][token] = 0;
+        IERC20(token).transfer(msg.sender, amount);
+
+        _recordWithdrawal(
+            token,
+            amount,
+            msg.sender,
+            WithdrawalType.COMMERCE,
+            bytes32(0)
+        );
+        emit Withdrawn(msg.sender, token, amount);
+    }
+
+    /// @notice Withdraws all accumulated funds for all tokens with balance > 0
+    /// @param tokens Array of token addresses to check and withdraw
+    function withdrawAll(address[] calldata tokens) external nonReentrant {
+        require(tokens.length > 0, "No tokens provided");
+        uint256 totalWithdrawn = 0;
+
+        for (uint256 i = 0; i < tokens.length; i++) {
+            address token = tokens[i];
+
+            // Skip if token is not whitelisted
+            if (!whitelistedTokens[token]) {
+                continue;
+            }
+
+            uint256 amount = balances[msg.sender][token];
+
+            // Skip if no balance
+            if (amount == 0) {
+                continue;
+            }
+
+            // Withdraw this token
+            balances[msg.sender][token] = 0;
+            IERC20(token).transfer(msg.sender, amount);
+
+            _recordWithdrawal(
+                token,
+                amount,
+                msg.sender,
+                WithdrawalType.COMMERCE,
+                bytes32(0)
+            );
+            emit Withdrawn(msg.sender, token, amount);
+            totalWithdrawn++;
+        }
+
+        require(totalWithdrawn > 0, "No funds to withdraw");
+    }
+
+    // === TREASURY SYSTEM ===
+
+    /// @notice Adds a treasury wallet that can receive service fees
+    /// @param wallet The treasury wallet address
+    /// @param description Description for the treasury wallet
+    function addTreasuryWallet(
+        address wallet,
+        string calldata description
+    ) external onlyOwner {
+        require(wallet != address(0), "Invalid treasury wallet address");
+        require(
+            !treasuryWallets[wallet].isActive,
+            "Treasury wallet already exists"
+        );
+
+        treasuryWallets[wallet] = TreasuryWallet({
+            wallet: wallet,
+            isActive: true,
+            addedAt: block.timestamp,
+            description: description
+        });
+
+        treasuryWalletsList.push(wallet);
+        emit TreasuryWalletAdded(wallet, description);
+    }
+
+    /// @notice Removes a treasury wallet
+    /// @param wallet The treasury wallet address to remove
+    function removeTreasuryWallet(address wallet) external onlyOwner {
+        require(
+            treasuryWallets[wallet].isActive,
+            "Treasury wallet not found or inactive"
+        );
+
+        treasuryWallets[wallet].isActive = false;
+
+        // Remove from list (swap with last element and pop)
+        for (uint256 i = 0; i < treasuryWalletsList.length; i++) {
+            if (treasuryWalletsList[i] == wallet) {
+                treasuryWalletsList[i] = treasuryWalletsList[
+                    treasuryWalletsList.length - 1
+                ];
+                treasuryWalletsList.pop();
+                break;
+            }
+        }
+
+        emit TreasuryWalletRemoved(wallet);
+    }
+
+    /// @notice Sets treasury wallet status (active/inactive)
+    /// @param wallet The treasury wallet address
+    /// @param isActive New status
+    function setTreasuryWalletStatus(
+        address wallet,
+        bool isActive
+    ) external onlyOwner {
+        require(
+            treasuryWallets[wallet].wallet != address(0),
+            "Treasury wallet not found"
+        );
+
+        treasuryWallets[wallet].isActive = isActive;
+        emit TreasuryWalletStatusChanged(wallet, isActive);
+    }
+
+    /// @notice Gets treasury wallet info
+    /// @param wallet The treasury wallet address
+    /// @return Treasury wallet information
+    function getTreasuryWallet(
+        address wallet
+    ) external view returns (TreasuryWallet memory) {
+        return treasuryWallets[wallet];
+    }
+
+    /// @notice Gets all treasury wallets
+    /// @return Array of treasury wallet addresses
+    function getAllTreasuryWallets() external view returns (address[] memory) {
+        return treasuryWalletsList;
+    }
+
+    /// @notice Gets all active treasury wallets
+    /// @return Array of active treasury wallet addresses
+    function getActiveTreasuryWallets()
+        external
+        view
+        returns (address[] memory)
+    {
+        uint256 activeCount = 0;
+
+        // Count active wallets
+        for (uint256 i = 0; i < treasuryWalletsList.length; i++) {
+            if (treasuryWallets[treasuryWalletsList[i]].isActive) {
+                activeCount++;
+            }
+        }
+
+        address[] memory activeWallets = new address[](activeCount);
+        uint256 index = 0;
+
+        // Populate active wallets array
+        for (uint256 i = 0; i < treasuryWalletsList.length; i++) {
+            if (treasuryWallets[treasuryWalletsList[i]].isActive) {
+                activeWallets[index] = treasuryWalletsList[i];
+                index++;
+            }
+        }
+
+        return activeWallets;
+    }
+
+    /// @notice Records a withdrawal in the history
+    /// @param token Token address
+    /// @param amount Amount withdrawn
+    /// @param to Recipient address
+    /// @param withdrawalType Type of withdrawal
+    /// @param invoiceId Invoice ID (only for commerce withdrawals)
+    function _recordWithdrawal(
+        address token,
+        uint256 amount,
+        address to,
+        WithdrawalType withdrawalType,
+        bytes32 invoiceId
+    ) private {
+        uint256 withdrawalIndex = withdrawalHistory.length;
+
+        withdrawalHistory.push(
+            WithdrawalRecord({
+                token: token,
+                amount: amount,
+                to: to,
+                initiatedBy: msg.sender,
+                withdrawalType: withdrawalType,
+                createdAt: block.timestamp,
+                invoiceId: invoiceId
+            })
+        );
+
+        if (withdrawalType == WithdrawalType.COMMERCE) {
+            commerceWithdrawals[msg.sender].push(withdrawalIndex);
+        } else if (withdrawalType == WithdrawalType.SERVICE_FEE) {
+            serviceFeeWithdrawals.push(withdrawalIndex);
+            treasuryWithdrawals[to].push(withdrawalIndex);
+        }
+
+        emit WithdrawalRecorded(
+            withdrawalIndex,
+            token,
+            amount,
+            to,
+            withdrawalType
+        );
+    }
+
+    /// @notice Withdraws accumulated service fees to a treasury wallet
+    /// @param token The token address to withdraw fees for
+    /// @param to The treasury wallet address (must be active)
+    function withdrawServiceFeesToTreasury(
+        address token,
+        address to
+    ) external onlyRole(TREASURY_MANAGER_ROLE) nonReentrant {
+        require(whitelistedTokens[token], "Token not whitelisted");
+        require(treasuryWallets[to].isActive, "Treasury wallet not active");
+
+        uint256 amount = serviceFeeBalances[token];
+        require(amount > 0, "No service fees to withdraw");
+
+        serviceFeeBalances[token] = 0;
+        IERC20(token).transfer(to, amount);
+
+        _recordWithdrawal(
+            token,
+            amount,
+            to,
+            WithdrawalType.SERVICE_FEE,
+            bytes32(0)
+        );
+        emit ServiceFeeWithdrawn(token, amount, to);
+    }
+
+    /// @notice Withdraws all accumulated service fees to a treasury wallet
+    /// @param tokens Array of token addresses to withdraw fees for
+    /// @param to The treasury wallet address (must be active)
+    function withdrawAllServiceFeesToTreasury(
+        address[] calldata tokens,
+        address to
+    ) external onlyRole(TREASURY_MANAGER_ROLE) nonReentrant {
+        require(tokens.length > 0, "No tokens provided");
+        require(treasuryWallets[to].isActive, "Treasury wallet not active");
+
+        uint256 totalWithdrawn = 0;
+
+        for (uint256 i = 0; i < tokens.length; i++) {
+            address token = tokens[i];
+
+            // Skip if token is not whitelisted
+            if (!whitelistedTokens[token]) {
+                continue;
+            }
+
+            uint256 amount = serviceFeeBalances[token];
+
+            // Skip if no balance
+            if (amount == 0) {
+                continue;
+            }
+
+            // Withdraw service fees for this token
+            serviceFeeBalances[token] = 0;
+            IERC20(token).transfer(to, amount);
+
+            _recordWithdrawal(
+                token,
+                amount,
+                to,
+                WithdrawalType.SERVICE_FEE,
+                bytes32(0)
+            );
+            emit ServiceFeeWithdrawn(token, amount, to);
+
+            totalWithdrawn++;
+        }
+
+        require(totalWithdrawn > 0, "No service fees to withdraw");
+    }
+
+    /// @notice Legacy function - withdraws accumulated service fees (backwards compatibility)
+    /// @param token The token address to withdraw fees for
+    /// @param to The address to send the fees to (if address(0), sends to owner)
+    function withdrawServiceFees(
+        address token,
+        address to
+    ) external onlyOwner nonReentrant {
+        require(whitelistedTokens[token], "Token not whitelisted");
+        uint256 amount = serviceFeeBalances[token];
+        require(amount > 0, "No service fees to withdraw");
+
+        serviceFeeBalances[token] = 0;
+        address recipient = to == address(0) ? owner() : to;
+        IERC20(token).transfer(recipient, amount);
+
+        _recordWithdrawal(
+            token,
+            amount,
+            recipient,
+            WithdrawalType.SERVICE_FEE,
+            bytes32(0)
+        );
+        emit ServiceFeeWithdrawn(token, amount, recipient);
+    }
+
+    /// @notice Legacy function - withdraws all accumulated service fees (backwards compatibility)
+    /// @param tokens Array of token addresses to withdraw fees for
+    /// @param to The address to send the fees to (if address(0), sends to owner)
+    function withdrawAllServiceFees(
+        address[] calldata tokens,
+        address to
+    ) external onlyOwner nonReentrant {
+        require(tokens.length > 0, "No tokens provided");
+
+        uint256 totalWithdrawn = 0;
+        address recipient = to == address(0) ? owner() : to;
+
+        for (uint256 i = 0; i < tokens.length; i++) {
+            address token = tokens[i];
+
+            // Skip if token is not whitelisted
+            if (!whitelistedTokens[token]) {
+                continue;
+            }
+
+            uint256 amount = serviceFeeBalances[token];
+
+            // Skip if no balance
+            if (amount == 0) {
+                continue;
+            }
+
+            // Withdraw service fees for this token
+            serviceFeeBalances[token] = 0;
+            IERC20(token).transfer(recipient, amount);
+
+            _recordWithdrawal(
+                token,
+                amount,
+                recipient,
+                WithdrawalType.SERVICE_FEE,
+                bytes32(0)
+            );
+            emit ServiceFeeWithdrawn(token, amount, recipient);
+
+            totalWithdrawn++;
+        }
+
+        require(totalWithdrawn > 0, "No service fees to withdraw");
+    }
+
+    /// @notice Get accumulated service fees for a specific token
+    /// @param token The token address
+    /// @return The accumulated service fee amount
+    function getServiceFeeBalance(
+        address token
+    ) external view returns (uint256) {
+        return serviceFeeBalances[token];
+    }
+
+    /// @notice Get accumulated service fees for multiple tokens
+    /// @param tokens Array of token addresses to check
+    /// @return amounts Array of service fee amounts corresponding to each token
+    function getServiceFeeBalances(
+        address[] calldata tokens
+    ) external view returns (uint256[] memory amounts) {
+        amounts = new uint256[](tokens.length);
+        for (uint256 i = 0; i < tokens.length; i++) {
+            amounts[i] = serviceFeeBalances[tokens[i]];
+        }
+        return amounts;
+    }
+
+    /// @notice Get commerce balance for a specific token
+    /// @param commerce The commerce address
+    /// @param token The token address
+    /// @return The balance amount
+    function getBalance(
+        address commerce,
+        address token
+    ) external view returns (uint256) {
+        return balances[commerce][token];
+    }
+
+    /// @notice Get commerce balances for multiple tokens
+    /// @param commerce The commerce address
+    /// @param tokens Array of token addresses to check
+    /// @return amounts Array of balance amounts corresponding to each token
+    function getBalances(
+        address commerce,
+        address[] calldata tokens
+    ) external view returns (uint256[] memory amounts) {
+        amounts = new uint256[](tokens.length);
+        for (uint256 i = 0; i < tokens.length; i++) {
+            amounts[i] = balances[commerce][tokens[i]];
+        }
+        return amounts;
+    }
+
+    /// @notice Refunds an invoice by transferring the payment back to the payer
+    /// Commerce assumes full refund cost. Service fees are not affected.
+    function refund(bytes32 id) external onlyInvoiceCommerce(id) {
+        Invoice storage inv = invoices[id];
+        require(inv.status == Status.PAID, "Invoice must be paid to refund");
+        require(inv.payer != address(0), "No payer to refund");
+
+        uint256 contractCommerceBalance = balances[inv.commerce][inv.paidToken];
+        IERC20 token = IERC20(inv.paidToken);
+
+        if (contractCommerceBalance >= inv.paidAmount) {
+            // Case 1: Commerce has enough balance in contract to cover full refund
+            balances[inv.commerce][inv.paidToken] -= inv.paidAmount;
+            token.transfer(inv.payer, inv.paidAmount);
+        } else {
+            // Case 2: Commerce must provide additional funds from their wallet
+            // Commerce must cover the full refund amount (their part + service fee)
+            uint256 shortfall = inv.paidAmount - contractCommerceBalance;
+
+            require(
+                token.balanceOf(inv.commerce) >= shortfall,
+                "Commerce wallet insufficient balance for refund shortfall"
+            );
+
+            require(
+                token.allowance(inv.commerce, address(this)) >= shortfall,
+                "Insufficient allowance for refund. Commerce must approve shortfall amount"
+            );
+
+            // Use commerce balance in contract first
+            if (contractCommerceBalance > 0) {
+                balances[inv.commerce][inv.paidToken] = 0;
+                token.transfer(inv.payer, contractCommerceBalance);
+            }
+
+            // Commerce covers the remaining amount (including the service fee portion)
+            if (shortfall > 0) {
+                token.transferFrom(inv.commerce, inv.payer, shortfall);
+            }
+        }
+
+        // Service fees remain untouched - commerce assumes full refund cost
+        // Update invoice status
+        inv.status = Status.REFUNDED;
+        inv.refundedAt = block.timestamp;
+
+        emit Refunded(id, inv.payer, inv.paidToken, inv.paidAmount);
+    }
+
+    /// @notice Cancels a pending invoice
+    /// @param id The invoice ID to cancel
+    function cancelInvoice(bytes32 id) external invoiceExists(id) {
+        Invoice storage inv = invoices[id];
+        require(
+            inv.status == Status.PENDING,
+            "Only pending invoices can be cancelled"
+        );
+        require(
+            msg.sender == inv.commerce || msg.sender == owner(),
+            "Not authorized to cancel invoice"
+        );
+
+        inv.status = Status.EXPIRED;
+        inv.expiredAt = block.timestamp;
+
+        emit InvoiceCancelled(id, inv.commerce);
+    }
+
+    /// @notice Marks an invoice as expired. Can only be called by commerce or owner
+    function expire(bytes32 id) external invoiceExists(id) {
+        Invoice storage inv = invoices[id];
+        require(
+            inv.status == Status.PENDING,
+            "Only pending invoices can be expired"
+        );
+        require(
+            msg.sender == inv.commerce || msg.sender == owner(),
+            "Not authorized to expire invoice"
+        );
+
+        inv.status = Status.EXPIRED;
+        inv.expiredAt = block.timestamp;
+
+        emit InvoiceExpired(id, inv.commerce);
+    }
+
+    /// @notice View summarized status of an invoice
+    function getInvoice(
+        bytes32 id
+    )
+        external
+        view
+        returns (
+            bytes32 invoiceId,
+            address payer,
+            address commerce,
+            address paidToken,
+            uint256 paidAmount,
+            Status status,
+            uint256 createdAt,
+            uint256 expiresAt,
+            uint256 paidAt,
+            uint256 refundedAt,
+            uint256 expiredAt
+        )
+    {
+        Invoice memory inv = invoices[id];
+        return (
+            inv.id,
+            inv.payer,
+            inv.commerce,
+            inv.paidToken,
+            inv.paidAmount,
+            inv.status,
+            inv.createdAt,
+            inv.expiresAt,
+            inv.paidAt,
+            inv.refundedAt,
+            inv.expiredAt
+        );
+    }
+
+    /// @notice Get all payment options for an invoice
+    /// @param invoiceId The invoice ID
+    /// @return An array of payment options
+    function getPaymentOptions(
+        bytes32 invoiceId
+    ) external view returns (PaymentOption[] memory) {
+        return invoicePaymentOptions[invoiceId];
+    }
+
+    /// @notice Get the number of payment options for an invoice
+    /// @param invoiceId The invoice ID
+    /// @return The number of payment options
+    function getPaymentOptionsCount(
+        bytes32 invoiceId
+    ) external view returns (uint256) {
+        return invoicePaymentOptions[invoiceId].length;
+    }
+
+    // === COMMERCE DASHBOARD FUNCTIONS ===
+
+    /// @notice Get all invoice IDs for a commerce
+    /// @param commerce The commerce address
+    /// @return Array of invoice IDs
+    function getCommerceInvoices(
+        address commerce
+    ) external view returns (bytes32[] memory) {
+        return commerceInvoices[commerce];
+    }
+
+    /// @notice Get total number of invoices for a commerce
+    /// @param commerce The commerce address
+    /// @return Total number of invoices
+    function getCommerceInvoiceCount(
+        address commerce
+    ) external view returns (uint256) {
+        return commerceInvoices[commerce].length;
+    }
+
+    /// @notice Get invoices by status for a commerce
+    /// @param commerce The commerce address
+    /// @param status The status to filter by
+    /// @return Array of invoice IDs with the specified status
+    function getCommerceInvoicesByStatus(
+        address commerce,
+        Status status
+    ) external view returns (bytes32[] memory) {
+        bytes32[] memory allInvoices = commerceInvoices[commerce];
+        bytes32[] memory filteredInvoices = new bytes32[](allInvoices.length);
+        uint256 count = 0;
+
+        for (uint256 i = 0; i < allInvoices.length; i++) {
+            if (invoices[allInvoices[i]].status == status) {
+                filteredInvoices[count] = allInvoices[i];
+                count++;
+            }
+        }
+
+        // Resize array to actual count
+        bytes32[] memory result = new bytes32[](count);
+        for (uint256 i = 0; i < count; i++) {
+            result[i] = filteredInvoices[i];
+        }
+
+        return result;
+    }
+
+    /// @notice Get commerce statistics
+    /// @param commerce The commerce address
+    /// @return totalInvoices Total number of invoices
+    /// @return pendingInvoices Number of pending invoices
+    /// @return paidInvoices Number of paid invoices
+    /// @return refundedInvoices Number of refunded invoices
+    /// @return expiredInvoices Number of expired invoices
+    function getCommerceStats(
+        address commerce
+    )
+        external
+        view
+        returns (
+            uint256 totalInvoices,
+            uint256 pendingInvoices,
+            uint256 paidInvoices,
+            uint256 refundedInvoices,
+            uint256 expiredInvoices
+        )
+    {
+        bytes32[] memory allInvoices = commerceInvoices[commerce];
+        totalInvoices = allInvoices.length;
+
+        for (uint256 i = 0; i < allInvoices.length; i++) {
+            Status status = invoices[allInvoices[i]].status;
+            if (status == Status.PENDING) {
+                pendingInvoices++;
+            } else if (status == Status.PAID) {
+                paidInvoices++;
+            } else if (status == Status.REFUNDED) {
+                refundedInvoices++;
+            } else if (status == Status.EXPIRED) {
+                expiredInvoices++;
+            }
+        }
+    }
+
+    /// @notice Get all unique tokens that a commerce has received payments in
+    /// @param commerce The commerce address
+    /// @return Array of unique token addresses used in paid invoices
+    function getCommerceTokens(
+        address commerce
+    ) external view returns (address[] memory) {
+        bytes32[] memory allInvoices = commerceInvoices[commerce];
+        address[] memory tempTokens = new address[](allInvoices.length);
+        uint256 uniqueCount = 0;
+
+        for (uint256 i = 0; i < allInvoices.length; i++) {
+            Invoice memory inv = invoices[allInvoices[i]];
+            if (inv.status == Status.PAID && inv.paidToken != address(0)) {
+                // Check if token is already in the array
+                bool exists = false;
+                for (uint256 j = 0; j < uniqueCount; j++) {
+                    if (tempTokens[j] == inv.paidToken) {
+                        exists = true;
+                        break;
+                    }
+                }
+
+                // Add token if it's not already in the array
+                if (!exists) {
+                    tempTokens[uniqueCount] = inv.paidToken;
+                    uniqueCount++;
+                }
+            }
+        }
+
+        // Create result array with exact size
+        address[] memory result = new address[](uniqueCount);
+        for (uint256 i = 0; i < uniqueCount; i++) {
+            result[i] = tempTokens[i];
+        }
+
+        return result;
+    }
+
+    /// @notice Get commerce total revenue by token (only paid invoices)
+    /// @param commerce The commerce address
+    /// @param token The token address
+    /// @return totalRevenue Total amount collected from paid invoices (before fees)
+    /// @return netRevenue Net amount (after service fees)
+    function getCommerceRevenue(
+        address commerce,
+        address token
+    ) external view returns (uint256 totalRevenue, uint256 netRevenue) {
+        bytes32[] memory allInvoices = commerceInvoices[commerce];
+        uint256 feePercent = getCommerceFee(commerce);
+
+        for (uint256 i = 0; i < allInvoices.length; i++) {
+            Invoice memory inv = invoices[allInvoices[i]];
+            if (inv.status == Status.PAID && inv.paidToken == token) {
+                totalRevenue += inv.paidAmount;
+                uint256 feeAmount = (inv.paidAmount * feePercent) / 10000;
+                netRevenue += (inv.paidAmount - feeAmount);
+            }
+        }
+    }
+
+    /// @notice Get commerce revenue for all tokens (only paid invoices)
+    /// @param commerce The commerce address
+    /// @return tokens Array of token addresses
+    /// @return totalRevenues Array of total revenues per token (before fees)
+    /// @return netRevenues Array of net revenues per token (after fees)
+    function getCommerceAllRevenues(
+        address commerce
+    )
+        external
+        view
+        returns (
+            address[] memory tokens,
+            uint256[] memory totalRevenues,
+            uint256[] memory netRevenues
+        )
+    {
+        tokens = this.getCommerceTokens(commerce);
+        totalRevenues = new uint256[](tokens.length);
+        netRevenues = new uint256[](tokens.length);
+
+        for (uint256 i = 0; i < tokens.length; i++) {
+            (totalRevenues[i], netRevenues[i]) = this.getCommerceRevenue(
+                commerce,
+                tokens[i]
+            );
+        }
+    }
+
+    /// @notice Get recent invoices for a commerce (last N invoices)
+    /// @param commerce The commerce address
+    /// @param limit Maximum number of invoices to return
+    /// @return Array of invoice IDs (most recent first)
+    function getRecentCommerceInvoices(
+        address commerce,
+        uint256 limit
+    ) external view returns (bytes32[] memory) {
+        bytes32[] memory allInvoices = commerceInvoices[commerce];
+        uint256 totalInvoices = allInvoices.length;
+
+        if (totalInvoices == 0) {
+            return new bytes32[](0);
+        }
+
+        uint256 resultSize = limit > totalInvoices ? totalInvoices : limit;
+        bytes32[] memory result = new bytes32[](resultSize);
+
+        // Return from most recent (last added) to oldest
+        for (uint256 i = 0; i < resultSize; i++) {
+            result[i] = allInvoices[totalInvoices - 1 - i];
+        }
+
+        return result;
+    }
+
+    /// @notice Get detailed info for multiple invoices (useful for dashboard)
+    /// @param invoiceIds Array of invoice IDs
+    /// @return ids Array of invoice IDs
+    /// @return payers Array of payer addresses
+    /// @return commerces Array of commerce addresses
+    /// @return paidTokens Array of paid token addresses
+    /// @return paidAmounts Array of paid amounts
+    /// @return statuses Array of invoice statuses
+    /// @return createdAts Array of creation timestamps
+    /// @return expiresAts Array of expiration timestamps
+    /// @return paidAts Array of payment timestamps
+    /// @return refundedAts Array of refund timestamps
+    /// @return expiredAts Array of expiration timestamps
+    function getMultipleInvoices(
+        bytes32[] calldata invoiceIds
+    )
+        external
+        view
+        returns (
+            bytes32[] memory ids,
+            address[] memory payers,
+            address[] memory commerces,
+            address[] memory paidTokens,
+            uint256[] memory paidAmounts,
+            Status[] memory statuses,
+            uint256[] memory createdAts,
+            uint256[] memory expiresAts,
+            uint256[] memory paidAts,
+            uint256[] memory refundedAts,
+            uint256[] memory expiredAts
+        )
+    {
+        uint256 length = invoiceIds.length;
+
+        ids = new bytes32[](length);
+        payers = new address[](length);
+        commerces = new address[](length);
+        paidTokens = new address[](length);
+        paidAmounts = new uint256[](length);
+        statuses = new Status[](length);
+        createdAts = new uint256[](length);
+        expiresAts = new uint256[](length);
+        paidAts = new uint256[](length);
+        refundedAts = new uint256[](length);
+        expiredAts = new uint256[](length);
+
+        for (uint256 i = 0; i < length; i++) {
+            Invoice memory inv = invoices[invoiceIds[i]];
+            ids[i] = inv.id;
+            payers[i] = inv.payer;
+            commerces[i] = inv.commerce;
+            paidTokens[i] = inv.paidToken;
+            paidAmounts[i] = inv.paidAmount;
+            statuses[i] = inv.status;
+            createdAts[i] = inv.createdAt;
+            expiresAts[i] = inv.expiresAt;
+            paidAts[i] = inv.paidAt;
+            refundedAts[i] = inv.refundedAt;
+            expiredAts[i] = inv.expiredAt;
+        }
+    }
+
+    // === WITHDRAWAL TRACKING FUNCTIONS ===
+
+    /// @notice Get total number of withdrawals
+    /// @return Total number of withdrawals recorded
+    function getWithdrawalCount() external view returns (uint256) {
+        return withdrawalHistory.length;
+    }
+
+    /// @notice Get withdrawal record by index
+    /// @param index The withdrawal index
+    /// @return Withdrawal record
+    function getWithdrawal(
+        uint256 index
+    ) external view returns (WithdrawalRecord memory) {
+        require(
+            index < withdrawalHistory.length,
+            "Withdrawal index out of bounds"
+        );
+        return withdrawalHistory[index];
+    }
+
+    /// @notice Get multiple withdrawal records by indices
+    /// @param indices Array of withdrawal indices
+    /// @return Array of withdrawal records
+    function getMultipleWithdrawals(
+        uint256[] calldata indices
+    ) external view returns (WithdrawalRecord[] memory) {
+        WithdrawalRecord[] memory result = new WithdrawalRecord[](
+            indices.length
+        );
+
+        for (uint256 i = 0; i < indices.length; i++) {
+            require(
+                indices[i] < withdrawalHistory.length,
+                "Withdrawal index out of bounds"
+            );
+            result[i] = withdrawalHistory[indices[i]];
+        }
+
+        return result;
+    }
+
+    /// @notice Get recent withdrawals (last N withdrawals)
+    /// @param limit Maximum number of withdrawals to return
+    /// @return Array of withdrawal records (most recent first)
+    function getRecentWithdrawals(
+        uint256 limit
+    ) external view returns (WithdrawalRecord[] memory) {
+        uint256 totalWithdrawals = withdrawalHistory.length;
+
+        if (totalWithdrawals == 0) {
+            return new WithdrawalRecord[](0);
+        }
+
+        uint256 resultSize = limit > totalWithdrawals
+            ? totalWithdrawals
+            : limit;
+        WithdrawalRecord[] memory result = new WithdrawalRecord[](resultSize);
+
+        // Return from most recent to oldest
+        for (uint256 i = 0; i < resultSize; i++) {
+            result[i] = withdrawalHistory[totalWithdrawals - 1 - i];
+        }
+
+        return result;
+    }
+
+    /// @notice Get commerce withdrawal history
+    /// @param commerce The commerce address
+    /// @return Array of withdrawal indices for this commerce
+    function getCommerceWithdrawalIndices(
+        address commerce
+    ) external view returns (uint256[] memory) {
+        return commerceWithdrawals[commerce];
+    }
+
+    /// @notice Get commerce withdrawal records
+    /// @param commerce The commerce address
+    /// @return Array of withdrawal records for this commerce
+    function getCommerceWithdrawals(
+        address commerce
+    ) external view returns (WithdrawalRecord[] memory) {
+        uint256[] memory indices = commerceWithdrawals[commerce];
+        WithdrawalRecord[] memory result = new WithdrawalRecord[](
+            indices.length
+        );
+
+        for (uint256 i = 0; i < indices.length; i++) {
+            result[i] = withdrawalHistory[indices[i]];
+        }
+
+        return result;
+    }
+
+    /// @notice Get recent commerce withdrawals
+    /// @param commerce The commerce address
+    /// @param limit Maximum number of withdrawals to return
+    /// @return Array of withdrawal records (most recent first)
+    function getRecentCommerceWithdrawals(
+        address commerce,
+        uint256 limit
+    ) external view returns (WithdrawalRecord[] memory) {
+        uint256[] memory allIndices = commerceWithdrawals[commerce];
+        uint256 totalWithdrawals = allIndices.length;
+
+        if (totalWithdrawals == 0) {
+            return new WithdrawalRecord[](0);
+        }
+
+        uint256 resultSize = limit > totalWithdrawals
+            ? totalWithdrawals
+            : limit;
+        WithdrawalRecord[] memory result = new WithdrawalRecord[](resultSize);
+
+        // Return from most recent to oldest
+        for (uint256 i = 0; i < resultSize; i++) {
+            uint256 withdrawalIndex = allIndices[totalWithdrawals - 1 - i];
+            result[i] = withdrawalHistory[withdrawalIndex];
+        }
+
+        return result;
+    }
+
+    /// @notice Get treasury withdrawal history (service fee withdrawals)
+    /// @return Array of withdrawal indices for service fees
+    function getServiceFeeWithdrawalIndices()
+        external
+        view
+        returns (uint256[] memory)
+    {
+        return serviceFeeWithdrawals;
+    }
+
+    /// @notice Get service fee withdrawal records
+    /// @return Array of service fee withdrawal records
+    function getServiceFeeWithdrawals()
+        external
+        view
+        returns (WithdrawalRecord[] memory)
+    {
+        uint256[] memory indices = serviceFeeWithdrawals;
+        WithdrawalRecord[] memory result = new WithdrawalRecord[](
+            indices.length
+        );
+
+        for (uint256 i = 0; i < indices.length; i++) {
+            result[i] = withdrawalHistory[indices[i]];
+        }
+
+        return result;
+    }
+
+    /// @notice Get recent service fee withdrawals
+    /// @param limit Maximum number of withdrawals to return
+    /// @return Array of service fee withdrawal records (most recent first)
+    function getRecentServiceFeeWithdrawals(
+        uint256 limit
+    ) external view returns (WithdrawalRecord[] memory) {
+        uint256[] memory allIndices = serviceFeeWithdrawals;
+        uint256 totalWithdrawals = allIndices.length;
+
+        if (totalWithdrawals == 0) {
+            return new WithdrawalRecord[](0);
+        }
+
+        uint256 resultSize = limit > totalWithdrawals
+            ? totalWithdrawals
+            : limit;
+        WithdrawalRecord[] memory result = new WithdrawalRecord[](resultSize);
+
+        // Return from most recent to oldest
+        for (uint256 i = 0; i < resultSize; i++) {
+            uint256 withdrawalIndex = allIndices[totalWithdrawals - 1 - i];
+            result[i] = withdrawalHistory[withdrawalIndex];
+        }
+
+        return result;
+    }
+
+    /// @notice Get treasury wallet withdrawal history
+    /// @param treasuryWallet The treasury wallet address
+    /// @return Array of withdrawal indices for this treasury wallet
+    function getTreasuryWithdrawalIndices(
+        address treasuryWallet
+    ) external view returns (uint256[] memory) {
+        return treasuryWithdrawals[treasuryWallet];
+    }
+
+    /// @notice Get treasury wallet withdrawal records
+    /// @param treasuryWallet The treasury wallet address
+    /// @return Array of withdrawal records for this treasury wallet
+    function getTreasuryWithdrawals(
+        address treasuryWallet
+    ) external view returns (WithdrawalRecord[] memory) {
+        uint256[] memory indices = treasuryWithdrawals[treasuryWallet];
+        WithdrawalRecord[] memory result = new WithdrawalRecord[](
+            indices.length
+        );
+
+        for (uint256 i = 0; i < indices.length; i++) {
+            result[i] = withdrawalHistory[indices[i]];
+        }
+
+        return result;
+    }
+
+    /// @notice Get recent treasury wallet withdrawals
+    /// @param treasuryWallet The treasury wallet address
+    /// @param limit Maximum number of withdrawals to return
+    /// @return Array of withdrawal records (most recent first)
+    function getRecentTreasuryWithdrawals(
+        address treasuryWallet,
+        uint256 limit
+    ) external view returns (WithdrawalRecord[] memory) {
+        uint256[] memory allIndices = treasuryWithdrawals[treasuryWallet];
+        uint256 totalWithdrawals = allIndices.length;
+
+        if (totalWithdrawals == 0) {
+            return new WithdrawalRecord[](0);
+        }
+
+        uint256 resultSize = limit > totalWithdrawals
+            ? totalWithdrawals
+            : limit;
+        WithdrawalRecord[] memory result = new WithdrawalRecord[](resultSize);
+
+        // Return from most recent to oldest
+        for (uint256 i = 0; i < resultSize; i++) {
+            uint256 withdrawalIndex = allIndices[totalWithdrawals - 1 - i];
+            result[i] = withdrawalHistory[withdrawalIndex];
+        }
+
+        return result;
+    }
+
+    /// @notice Get withdrawal statistics for commerce
+    /// @param commerce The commerce address
+    /// @return totalWithdrawals Total number of withdrawals
+    /// @return totalAmountByToken Total amounts withdrawn by token
+    /// @return tokens Array of tokens withdrawn
+    function getCommerceWithdrawalStats(
+        address commerce
+    )
+        external
+        view
+        returns (
+            uint256 totalWithdrawals,
+            uint256[] memory totalAmountByToken,
+            address[] memory tokens
+        )
+    {
+        uint256[] memory indices = commerceWithdrawals[commerce];
+        totalWithdrawals = indices.length;
+
+        // Temporary arrays to collect unique tokens and amounts
+        address[] memory tempTokens = new address[](totalWithdrawals);
+        uint256[] memory tempAmounts = new uint256[](totalWithdrawals);
+        uint256 uniqueTokenCount = 0;
+
+        for (uint256 i = 0; i < indices.length; i++) {
+            WithdrawalRecord memory withdrawal = withdrawalHistory[indices[i]];
+
+            // Find if token already exists
+            bool found = false;
+            for (uint256 j = 0; j < uniqueTokenCount; j++) {
+                if (tempTokens[j] == withdrawal.token) {
+                    tempAmounts[j] += withdrawal.amount;
+                    found = true;
+                    break;
+                }
+            }
+
+            // If not found, add new token
+            if (!found) {
+                tempTokens[uniqueTokenCount] = withdrawal.token;
+                tempAmounts[uniqueTokenCount] = withdrawal.amount;
+                uniqueTokenCount++;
+            }
+        }
+
+        // Create final arrays with correct size
+        tokens = new address[](uniqueTokenCount);
+        totalAmountByToken = new uint256[](uniqueTokenCount);
+
+        for (uint256 i = 0; i < uniqueTokenCount; i++) {
+            tokens[i] = tempTokens[i];
+            totalAmountByToken[i] = tempAmounts[i];
+        }
+    }
+
+    /// @notice Get service fee withdrawal statistics
+    /// @return totalWithdrawals Total number of service fee withdrawals
+    /// @return totalAmountByToken Total amounts withdrawn by token
+    /// @return tokens Array of tokens withdrawn
+    /// @return treasuryWalletList Array of treasury wallets that received funds
+    /// @return amountsByTreasury Amount sent to each treasury wallet by token
+    function getServiceFeeWithdrawalStats()
+        external
+        view
+        returns (
+            uint256 totalWithdrawals,
+            uint256[] memory totalAmountByToken,
+            address[] memory tokens,
+            address[] memory treasuryWalletList,
+            uint256[][] memory amountsByTreasury
+        )
+    {
+        uint256[] memory indices = serviceFeeWithdrawals;
+        totalWithdrawals = indices.length;
+
+        // Get unique tokens and treasury wallets
+        address[] memory tempTokens = new address[](totalWithdrawals);
+        address[] memory tempTreasuryWallets = new address[](totalWithdrawals);
+        uint256 uniqueTokenCount = 0;
+        uint256 uniqueTreasuryCount = 0;
+
+        for (uint256 i = 0; i < indices.length; i++) {
+            WithdrawalRecord memory withdrawal = withdrawalHistory[indices[i]];
+
+            // Check for unique tokens
+            bool tokenFound = false;
+            for (uint256 j = 0; j < uniqueTokenCount; j++) {
+                if (tempTokens[j] == withdrawal.token) {
+                    tokenFound = true;
+                    break;
+                }
+            }
+            if (!tokenFound) {
+                tempTokens[uniqueTokenCount] = withdrawal.token;
+                uniqueTokenCount++;
+            }
+
+            // Check for unique treasury wallets
+            bool treasuryFound = false;
+            for (uint256 j = 0; j < uniqueTreasuryCount; j++) {
+                if (tempTreasuryWallets[j] == withdrawal.to) {
+                    treasuryFound = true;
+                    break;
+                }
+            }
+            if (!treasuryFound) {
+                tempTreasuryWallets[uniqueTreasuryCount] = withdrawal.to;
+                uniqueTreasuryCount++;
+            }
+        }
+
+        // Create final arrays
+        tokens = new address[](uniqueTokenCount);
+        totalAmountByToken = new uint256[](uniqueTokenCount);
+        treasuryWalletList = new address[](uniqueTreasuryCount);
+        amountsByTreasury = new uint256[][](uniqueTreasuryCount);
+
+        for (uint256 i = 0; i < uniqueTokenCount; i++) {
+            tokens[i] = tempTokens[i];
+        }
+
+        for (uint256 i = 0; i < uniqueTreasuryCount; i++) {
+            treasuryWalletList[i] = tempTreasuryWallets[i];
+            amountsByTreasury[i] = new uint256[](uniqueTokenCount);
+        }
+
+        // Calculate amounts
+        for (uint256 i = 0; i < indices.length; i++) {
+            WithdrawalRecord memory withdrawal = withdrawalHistory[indices[i]];
+
+            // Find token index
+            uint256 tokenIndex = 0;
+            for (uint256 j = 0; j < uniqueTokenCount; j++) {
+                if (tokens[j] == withdrawal.token) {
+                    tokenIndex = j;
+                    break;
+                }
+            }
+
+            // Find treasury index
+            uint256 treasuryIndex = 0;
+            for (uint256 j = 0; j < uniqueTreasuryCount; j++) {
+                if (treasuryWalletList[j] == withdrawal.to) {
+                    treasuryIndex = j;
+                    break;
+                }
+            }
+
+            totalAmountByToken[tokenIndex] += withdrawal.amount;
+            amountsByTreasury[treasuryIndex][tokenIndex] += withdrawal.amount;
+        }
+    }
+
+    /// @notice Checks if a function selector is supported for AccessControl compatibility
+    /// @param interfaceId The interface identifier
+    /// @return True if the interface is supported
+    function supportsInterface(
+        bytes4 interfaceId
+    ) public view virtual override returns (bool) {
+        return super.supportsInterface(interfaceId);
+    }
+}
