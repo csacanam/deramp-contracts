@@ -9,6 +9,10 @@ interface IAccessManager {
 
     function getTreasuryManagerRole() external pure returns (bytes32);
 
+    function getBackendOperatorRole() external pure returns (bytes32);
+
+    function getDefaultAdminRole() external pure returns (bytes32);
+
     // Role management
     function grantRole(bytes32 role, address account) external;
 
@@ -19,12 +23,17 @@ interface IAccessManager {
         address account
     ) external view returns (bool);
 
+    // Emergency functions
+    function emergencyPause() external;
+
     // Token whitelist
     function addTokenToWhitelist(address token) external;
 
     function removeTokenFromWhitelist(address token) external;
 
     function isTokenWhitelisted(address token) external view returns (bool);
+
+    function getWhitelistedTokens() external view returns (address[] memory);
 
     // Commerce whitelist
     function addCommerceToWhitelist(address commerce) external;
@@ -43,6 +52,4 @@ interface IAccessManager {
     function getCommerceFee(address commerce) external view returns (uint256);
 
     function getDefaultFeePercent() external view returns (uint256);
-
-    function getWhitelistedTokens() external view returns (address[] memory);
 }

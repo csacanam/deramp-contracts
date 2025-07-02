@@ -11,7 +11,13 @@ contract InvoiceManager is Pausable, IInvoiceManager {
     IAccessManager public immutable accessManager;
 
     modifier onlyOwner() {
-        require(accessManager.hasRole(0x00, msg.sender), "Not owner");
+        require(
+            accessManager.hasRole(
+                accessManager.getDefaultAdminRole(),
+                msg.sender
+            ),
+            "Not owner"
+        );
         _;
     }
 
@@ -47,7 +53,15 @@ contract InvoiceManager is Pausable, IInvoiceManager {
             "Commerce not whitelisted"
         );
         require(
-            msg.sender == commerce || accessManager.hasRole(0x00, msg.sender),
+            msg.sender == commerce ||
+                accessManager.hasRole(
+                    accessManager.getDefaultAdminRole(),
+                    msg.sender
+                ) ||
+                accessManager.hasRole(
+                    accessManager.getBackendOperatorRole(),
+                    msg.sender
+                ),
             "Not authorized to create invoice for this commerce"
         );
         require(
@@ -105,7 +119,14 @@ contract InvoiceManager is Pausable, IInvoiceManager {
         );
         require(
             msg.sender == inv.commerce ||
-                accessManager.hasRole(0x00, msg.sender),
+                accessManager.hasRole(
+                    accessManager.getDefaultAdminRole(),
+                    msg.sender
+                ) ||
+                accessManager.hasRole(
+                    accessManager.getBackendOperatorRole(),
+                    msg.sender
+                ),
             "Not authorized to cancel invoice"
         );
 
@@ -115,27 +136,6 @@ contract InvoiceManager is Pausable, IInvoiceManager {
 
         storageContract.setInvoice(id, updatedInvoice);
         emit IDerampStorage.InvoiceCancelled(id, inv.commerce);
-    }
-
-    function expireInvoice(bytes32 id) external {
-        IDerampStorage.Invoice memory inv = storageContract.getInvoice(id);
-        require(inv.id != bytes32(0), "Invoice not found");
-        require(
-            inv.status == IDerampStorage.Status.PENDING,
-            "Only pending invoices can be expired"
-        );
-        require(
-            msg.sender == inv.commerce ||
-                accessManager.hasRole(0x00, msg.sender),
-            "Not authorized to expire invoice"
-        );
-
-        IDerampStorage.Invoice memory updatedInvoice = inv;
-        updatedInvoice.status = IDerampStorage.Status.EXPIRED;
-        updatedInvoice.expiredAt = block.timestamp;
-
-        storageContract.setInvoice(id, updatedInvoice);
-        emit IDerampStorage.InvoiceExpired(id, inv.commerce);
     }
 
     // === INVOICE QUERIES ===

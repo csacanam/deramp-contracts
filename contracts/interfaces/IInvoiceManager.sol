@@ -14,8 +14,6 @@ interface IInvoiceManager {
 
     function cancelInvoice(bytes32 id) external;
 
-    function expireInvoice(bytes32 id) external;
-
     // Invoice queries
     function getInvoice(
         bytes32 id

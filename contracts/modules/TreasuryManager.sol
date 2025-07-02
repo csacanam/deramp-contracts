@@ -18,7 +18,13 @@ contract TreasuryManager is Pausable, ITreasuryManager {
         keccak256("TREASURY_MANAGER_ROLE");
 
     modifier onlyOwner() {
-        require(accessManager.hasRole(0x00, msg.sender), "Not owner");
+        require(
+            accessManager.hasRole(
+                accessManager.getDefaultAdminRole(),
+                msg.sender
+            ),
+            "Not owner"
+        );
         _;
     }
 

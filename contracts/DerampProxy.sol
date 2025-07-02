@@ -223,12 +223,6 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         );
     }
 
-    function expireInvoice(bytes32 id) external whenNotPaused {
-        _delegateToInvoiceManager(
-            abi.encodeWithSignature("expireInvoice(bytes32)", id)
-        );
-    }
-
     function getInvoice(
         bytes32 id
     )
@@ -251,10 +245,67 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         return IInvoiceManager(invoiceManager).getInvoice(id);
     }
 
+    function getInvoicePaymentOptions(
+        bytes32 id
+    ) external view returns (IDerampStorage.PaymentOption[] memory) {
+        return IInvoiceManager(invoiceManager).getInvoicePaymentOptions(id);
+    }
+
     function getCommerceInvoices(
         address commerce
     ) external view returns (bytes32[] memory) {
         return IInvoiceManager(invoiceManager).getCommerceInvoices(commerce);
+    }
+
+    function getCommerceInvoiceCount(
+        address commerce
+    ) external view returns (uint256) {
+        return
+            IInvoiceManager(invoiceManager).getCommerceInvoiceCount(commerce);
+    }
+
+    function getCommerceInvoicesByStatus(
+        address commerce,
+        IDerampStorage.Status status
+    ) external view returns (bytes32[] memory) {
+        return
+            IInvoiceManager(invoiceManager).getCommerceInvoicesByStatus(
+                commerce,
+                status
+            );
+    }
+
+    function getRecentCommerceInvoices(
+        address commerce,
+        uint256 limit
+    ) external view returns (bytes32[] memory) {
+        return
+            IInvoiceManager(invoiceManager).getRecentCommerceInvoices(
+                commerce,
+                limit
+            );
+    }
+
+    function getMultipleInvoices(
+        bytes32[] calldata invoiceIds
+    )
+        external
+        view
+        returns (
+            bytes32[] memory ids,
+            address[] memory payers,
+            address[] memory commerces,
+            address[] memory paidTokens,
+            uint256[] memory paidAmounts,
+            IDerampStorage.Status[] memory statuses,
+            uint256[] memory createdAts,
+            uint256[] memory expiresAts,
+            uint256[] memory paidAts,
+            uint256[] memory refundedAts,
+            uint256[] memory expiredAts
+        )
+    {
+        return IInvoiceManager(invoiceManager).getMultipleInvoices(invoiceIds);
     }
 
     function getCommerceStats(

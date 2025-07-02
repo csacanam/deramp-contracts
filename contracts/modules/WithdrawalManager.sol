@@ -23,7 +23,13 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
     }
 
     modifier onlyOwner() {
-        require(accessManager.hasRole(0x00, msg.sender), "Not owner");
+        require(
+            accessManager.hasRole(
+                accessManager.getDefaultAdminRole(),
+                msg.sender
+            ),
+            "Not owner"
+        );
         _;
     }
 
