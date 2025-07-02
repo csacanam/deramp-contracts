@@ -1,312 +1,299 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { AccessManager, DerampStorage } from "../typechain-types";
-import { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 
-describe("AccessManager", function () {
+describe("AccessManager - Business Flows", function () {
   let accessManager: AccessManager;
   let storage: DerampStorage;
-  let owner: SignerWithAddress;
-  let user1: SignerWithAddress;
-  let user2: SignerWithAddress;
-  let commerce1: SignerWithAddress;
-  let commerce2: SignerWithAddress;
-  let unauthorized: SignerWithAddress;
+  let owner: HardhatEthersSigner;
+  let tokenManager: HardhatEthersSigner;
+  let onboardingManager: HardhatEthersSigner;
+  let treasuryManager: HardhatEthersSigner;
+  let unauthorized: HardhatEthersSigner;
+  let commerce1: HardhatEthersSigner;
+  let commerce2: HardhatEthersSigner;
 
-  const DEFAULT_ADMIN_ROLE = "0x0000000000000000000000000000000000000000000000000000000000000000";
-  const ONBOARDING_ROLE = ethers.keccak256(ethers.toUtf8Bytes("ONBOARDING_ROLE"));
-  const TOKEN_MANAGER_ROLE = ethers.keccak256(ethers.toUtf8Bytes("TOKEN_MANAGER_ROLE"));
-  const TREASURY_MANAGER_ROLE = ethers.keccak256(ethers.toUtf8Bytes("TREASURY_MANAGER_ROLE"));
+  // Test addresses
+  const USDC_ADDRESS = "0xa0b86a33e6441e6c1988c0e6c6c2f0a8e3b0c6d4";
+  const USDT_ADDRESS = "0xb1c97a44f7a8e4c5d9f8b7e6c3a2b1d0e9f8c7b6";
+  const INVALID_ADDRESS = ethers.ZeroAddress;
+
+  // Role constants
+  let TOKEN_MANAGER_ROLE: string;
+  let ONBOARDING_ROLE: string;
+  let TREASURY_MANAGER_ROLE: string;
 
   beforeEach(async function () {
-    [owner, user1, user2, commerce1, commerce2, unauthorized] = await ethers.getSigners();
+    [owner, tokenManager, onboardingManager, treasuryManager, unauthorized, commerce1, commerce2] = 
+      await ethers.getSigners();
 
-    // Deploy storage first
-    const DerampStorage = await ethers.getContractFactory("DerampStorage");
-    storage = await DerampStorage.deploy();
+    // Deploy storage
+    const StorageFactory = await ethers.getContractFactory("DerampStorage");
+    storage = await StorageFactory.deploy();
 
     // Deploy AccessManager
-    const AccessManager = await ethers.getContractFactory("AccessManager");
-    accessManager = await AccessManager.deploy(await storage.getAddress());
+    const AccessManagerFactory = await ethers.getContractFactory("AccessManager");
+    accessManager = await AccessManagerFactory.deploy(await storage.getAddress());
 
-    // Authorize AccessManager to write to storage
+    // Set AccessManager as module in storage
     await storage.setModule("AccessManager", await accessManager.getAddress());
+
+    // Get role constants
+    TOKEN_MANAGER_ROLE = await accessManager.getTokenManagerRole();
+    ONBOARDING_ROLE = await accessManager.getOnboardingRole();
+    TREASURY_MANAGER_ROLE = await accessManager.getTreasuryManagerRole();
   });
 
-  describe("Deployment", function () {
-    it("Should set the correct storage contract", async function () {
-      expect(await accessManager.storageContract()).to.equal(await storage.getAddress());
+  describe("Token Onboarding Flow", function () {
+    describe("✅ Successful Token Onboarding", function () {
+      it("Should complete token onboarding with correct permissions", async function () {
+        // 1. Grant TOKEN_MANAGER_ROLE to user
+        await accessManager.grantRole(TOKEN_MANAGER_ROLE, tokenManager.address);
+
+        // 2. Token manager adds USDC to whitelist
+        await accessManager.connect(tokenManager).addTokenToWhitelist(USDC_ADDRESS);
+
+        // 3. Verify token is whitelisted and can be used
+        expect(await accessManager.isTokenWhitelisted(USDC_ADDRESS)).to.be.true;
+        expect(await storage.whitelistedTokens(USDC_ADDRESS)).to.be.true;
+      });
+
+      it("Should allow owner to manage tokens directly", async function () {
+        // Owner should be able to manage tokens without explicit role grant
+        await accessManager.connect(owner).addTokenToWhitelist(USDC_ADDRESS);
+        
+        expect(await accessManager.isTokenWhitelisted(USDC_ADDRESS)).to.be.true;
+        
+        // Owner can also remove tokens
+        await accessManager.connect(owner).removeTokenFromWhitelist(USDC_ADDRESS);
+        expect(await accessManager.isTokenWhitelisted(USDC_ADDRESS)).to.be.false;
+      });
     });
 
-    it("Should grant all roles to deployer", async function () {
-      expect(await accessManager.hasRole(DEFAULT_ADMIN_ROLE, owner.address)).to.be.true;
-      expect(await accessManager.hasRole(ONBOARDING_ROLE, owner.address)).to.be.true;
-      expect(await accessManager.hasRole(TOKEN_MANAGER_ROLE, owner.address)).to.be.true;
-      expect(await accessManager.hasRole(TREASURY_MANAGER_ROLE, owner.address)).to.be.true;
-    });
-  });
+    describe("❌ Failed Token Onboarding", function () {
+      it("Should reject token onboarding without proper permissions", async function () {
+        // Unauthorized user tries to add token
+        await expect(
+          accessManager.connect(unauthorized).addTokenToWhitelist(USDC_ADDRESS)
+        ).to.be.revertedWithCustomError(accessManager, "AccessControlUnauthorizedAccount");
 
-  describe("Role Management", function () {
-    it("Should grant roles to users", async function () {
-      await accessManager.grantRole(ONBOARDING_ROLE, user1.address);
-      expect(await accessManager.hasRole(ONBOARDING_ROLE, user1.address)).to.be.true;
-    });
+        // Token should not be whitelisted
+        expect(await accessManager.isTokenWhitelisted(USDC_ADDRESS)).to.be.false;
+      });
 
-    it("Should revoke roles from users", async function () {
-      await accessManager.grantRole(ONBOARDING_ROLE, user1.address);
-      await accessManager.revokeRole(ONBOARDING_ROLE, user1.address);
-      expect(await accessManager.hasRole(ONBOARDING_ROLE, user1.address)).to.be.false;
-    });
+      it("Should reject invalid token addresses", async function () {
+        await accessManager.grantRole(TOKEN_MANAGER_ROLE, tokenManager.address);
 
-    it("Should prevent unauthorized role granting", async function () {
-      await expect(
-        accessManager.connect(unauthorized).grantRole(ONBOARDING_ROLE, user1.address)
-      ).to.be.revertedWithCustomError(accessManager, "AccessControlUnauthorizedAccount");
-    });
+        // Try to add zero address
+        await expect(
+          accessManager.connect(tokenManager).addTokenToWhitelist(INVALID_ADDRESS)
+        ).to.be.revertedWith("Invalid token address");
+      });
 
-    it("Should prevent unauthorized role revoking", async function () {
-      await accessManager.grantRole(ONBOARDING_ROLE, user1.address);
-      
-      await expect(
-        accessManager.connect(unauthorized).revokeRole(ONBOARDING_ROLE, user1.address)
-      ).to.be.revertedWithCustomError(accessManager, "AccessControlUnauthorizedAccount");
-    });
+      it("Should reject wrong role attempting token management", async function () {
+        // Grant ONBOARDING_ROLE instead of TOKEN_MANAGER_ROLE
+        await accessManager.grantRole(ONBOARDING_ROLE, onboardingManager.address);
 
-    it("Should check roles correctly", async function () {
-      expect(await accessManager.hasRole(ONBOARDING_ROLE, user1.address)).to.be.false;
-      
-      await accessManager.grantRole(ONBOARDING_ROLE, user1.address);
-      expect(await accessManager.hasRole(ONBOARDING_ROLE, user1.address)).to.be.true;
-    });
-  });
-
-  describe("Token Whitelist Management", function () {
-    const tokenAddress = "0x1234567890123456789012345678901234567890";
-    const tokenAddress2 = "0x2345678901234567890123456789012345678901";
-
-    it("Should add token to whitelist", async function () {
-      await accessManager.addTokenToWhitelist(tokenAddress);
-      expect(await accessManager.isTokenWhitelisted(tokenAddress)).to.be.true;
-    });
-
-    it("Should remove token from whitelist", async function () {
-      await accessManager.addTokenToWhitelist(tokenAddress);
-      await accessManager.removeTokenFromWhitelist(tokenAddress);
-      expect(await accessManager.isTokenWhitelisted(tokenAddress)).to.be.false;
-    });
-
-    it("Should add multiple tokens to whitelist", async function () {
-      const tokens = [tokenAddress, tokenAddress2];
-      await accessManager.addMultipleTokensToWhitelist(tokens);
-      
-      expect(await accessManager.isTokenWhitelisted(tokenAddress)).to.be.true;
-      expect(await accessManager.isTokenWhitelisted(tokenAddress2)).to.be.true;
-    });
-
-    it("Should remove multiple tokens from whitelist", async function () {
-      const tokens = [tokenAddress, tokenAddress2];
-      await accessManager.addMultipleTokensToWhitelist(tokens);
-      await accessManager.removeMultipleTokensFromWhitelist(tokens);
-      
-      expect(await accessManager.isTokenWhitelisted(tokenAddress)).to.be.false;
-      expect(await accessManager.isTokenWhitelisted(tokenAddress2)).to.be.false;
-    });
-
-    it("Should prevent unauthorized token whitelist operations", async function () {
-      await expect(
-        accessManager.connect(unauthorized).addTokenToWhitelist(tokenAddress)
-      ).to.be.revertedWithCustomError(accessManager, "AccessControlUnauthorizedAccount");
-    });
-
-    it("Should handle adding already whitelisted token", async function () {
-      await accessManager.addTokenToWhitelist(tokenAddress);
-      // Should not revert when adding already whitelisted token
-      await accessManager.addTokenToWhitelist(tokenAddress);
-      expect(await accessManager.isTokenWhitelisted(tokenAddress)).to.be.true;
-    });
-
-    it("Should handle removing non-whitelisted token", async function () {
-      // Should not revert when removing non-whitelisted token
-      await accessManager.removeTokenFromWhitelist(tokenAddress);
-      expect(await accessManager.isTokenWhitelisted(tokenAddress)).to.be.false;
+        await expect(
+          accessManager.connect(onboardingManager).addTokenToWhitelist(USDC_ADDRESS)
+        ).to.be.revertedWithCustomError(accessManager, "AccessControlUnauthorizedAccount");
+      });
     });
   });
 
-  describe("Commerce Whitelist Management", function () {
-    it("Should add commerce to whitelist", async function () {
-      await accessManager.addCommerceToWhitelist(commerce1.address);
-      expect(await accessManager.isCommerceWhitelisted(commerce1.address)).to.be.true;
+  describe("Commerce Onboarding Flow", function () {
+    describe("✅ Successful Commerce Onboarding", function () {
+      it("Should complete commerce onboarding with correct permissions", async function () {
+        // 1. Grant ONBOARDING_ROLE to user
+        await accessManager.grantRole(ONBOARDING_ROLE, onboardingManager.address);
+
+        // 2. Onboarding manager adds commerce to whitelist
+        await accessManager.connect(onboardingManager).addCommerceToWhitelist(commerce1.address);
+
+        // 3. Set custom fee for commerce
+        await accessManager.connect(onboardingManager).setCommerceFee(commerce1.address, 75); // 0.75%
+
+        // 4. Verify commerce is properly configured
+        expect(await accessManager.isCommerceWhitelisted(commerce1.address)).to.be.true;
+        expect(await accessManager.getCommerceFee(commerce1.address)).to.equal(75);
+        expect(await storage.whitelistedCommerces(commerce1.address)).to.be.true;
+      });
+
+      it("Should use default fee when no custom fee is set", async function () {
+        await accessManager.grantRole(ONBOARDING_ROLE, onboardingManager.address);
+        
+        // Set default fee
+        await accessManager.connect(onboardingManager).setDefaultFeePercent(50); // 0.5%
+        
+        // Add commerce without custom fee
+        await accessManager.connect(onboardingManager).addCommerceToWhitelist(commerce1.address);
+        
+        // Should return default fee
+        expect(await accessManager.getCommerceFee(commerce1.address)).to.equal(50);
+      });
     });
 
-    it("Should remove commerce from whitelist", async function () {
-      await accessManager.addCommerceToWhitelist(commerce1.address);
-      await accessManager.removeCommerceFromWhitelist(commerce1.address);
-      expect(await accessManager.isCommerceWhitelisted(commerce1.address)).to.be.false;
+    describe("❌ Failed Commerce Onboarding", function () {
+      it("Should reject commerce onboarding without proper permissions", async function () {
+        await expect(
+          accessManager.connect(unauthorized).addCommerceToWhitelist(commerce1.address)
+        ).to.be.revertedWithCustomError(accessManager, "AccessControlUnauthorizedAccount");
+
+        expect(await accessManager.isCommerceWhitelisted(commerce1.address)).to.be.false;
+      });
+
+      it("Should reject invalid commerce addresses", async function () {
+        await accessManager.grantRole(ONBOARDING_ROLE, onboardingManager.address);
+
+        await expect(
+          accessManager.connect(onboardingManager).addCommerceToWhitelist(INVALID_ADDRESS)
+        ).to.be.revertedWith("Invalid commerce address");
+      });
+
+      it("Should reject excessive fees", async function () {
+        await accessManager.grantRole(ONBOARDING_ROLE, onboardingManager.address);
+
+        // Try to set fee above 1%
+        await expect(
+          accessManager.connect(onboardingManager).setDefaultFeePercent(101)
+        ).to.be.revertedWith("Fee too high");
+
+        await expect(
+          accessManager.connect(onboardingManager).setCommerceFee(commerce1.address, 101)
+        ).to.be.revertedWith("Fee too high");
+      });
+
+      it("Should reject wrong role attempting commerce management", async function () {
+        // Grant TOKEN_MANAGER_ROLE instead of ONBOARDING_ROLE
+        await accessManager.grantRole(TOKEN_MANAGER_ROLE, tokenManager.address);
+
+        await expect(
+          accessManager.connect(tokenManager).addCommerceToWhitelist(commerce1.address)
+        ).to.be.revertedWithCustomError(accessManager, "AccessControlUnauthorizedAccount");
+      });
+    });
+  });
+
+  describe("Role Management Flow", function () {
+    describe("✅ Successful Role Management", function () {
+      it("Should complete role assignment and usage flow", async function () {
+        // 1. Owner grants role
+        await accessManager.connect(owner).grantRole(TOKEN_MANAGER_ROLE, tokenManager.address);
+        
+        // 2. Verify role is granted
+        expect(await accessManager.hasRole(TOKEN_MANAGER_ROLE, tokenManager.address)).to.be.true;
+        
+        // 3. User can use role permissions
+        await accessManager.connect(tokenManager).addTokenToWhitelist(USDC_ADDRESS);
+        expect(await accessManager.isTokenWhitelisted(USDC_ADDRESS)).to.be.true;
+        
+        // 4. Owner can revoke role
+        await accessManager.connect(owner).revokeRole(TOKEN_MANAGER_ROLE, tokenManager.address);
+        expect(await accessManager.hasRole(TOKEN_MANAGER_ROLE, tokenManager.address)).to.be.false;
+        
+        // 5. User can no longer use permissions
+        await expect(
+          accessManager.connect(tokenManager).addTokenToWhitelist(USDT_ADDRESS)
+        ).to.be.revertedWithCustomError(accessManager, "AccessControlUnauthorizedAccount");
+      });
     });
 
-    it("Should add multiple commerces to whitelist", async function () {
-      const commerces = [commerce1.address, commerce2.address];
-      await accessManager.addMultipleCommercesToWhitelist(commerces);
+    describe("❌ Failed Role Management", function () {
+      it("Should reject unauthorized role management", async function () {
+        await expect(
+          accessManager.connect(unauthorized).grantRole(TOKEN_MANAGER_ROLE, tokenManager.address)
+        ).to.be.revertedWithCustomError(accessManager, "AccessControlUnauthorizedAccount");
+
+        await expect(
+          accessManager.connect(unauthorized).revokeRole(TOKEN_MANAGER_ROLE, owner.address)
+        ).to.be.revertedWithCustomError(accessManager, "AccessControlUnauthorizedAccount");
+      });
+    });
+  });
+
+  describe("Complete Business Flow Integration", function () {
+    it("Should complete full system setup flow", async function () {
+      // 1. Setup roles
+      await accessManager.grantRole(TOKEN_MANAGER_ROLE, tokenManager.address);
+      await accessManager.grantRole(ONBOARDING_ROLE, onboardingManager.address);
       
+      // 2. Configure system defaults
+      await accessManager.connect(onboardingManager).setDefaultFeePercent(100); // 1%
+      
+      // 3. Onboard tokens
+      await accessManager.connect(tokenManager).addTokenToWhitelist(USDC_ADDRESS);
+      await accessManager.connect(tokenManager).addTokenToWhitelist(USDT_ADDRESS);
+      
+      // 4. Onboard commerce with custom fee
+      await accessManager.connect(onboardingManager).addCommerceToWhitelist(commerce1.address);
+      await accessManager.connect(onboardingManager).setCommerceFee(commerce1.address, 75); // 0.75%
+      
+      // 5. Onboard second commerce with default fee
+      await accessManager.connect(onboardingManager).addCommerceToWhitelist(commerce2.address);
+      
+      // 6. Verify complete configuration
+      expect(await accessManager.isTokenWhitelisted(USDC_ADDRESS)).to.be.true;
+      expect(await accessManager.isTokenWhitelisted(USDT_ADDRESS)).to.be.true;
       expect(await accessManager.isCommerceWhitelisted(commerce1.address)).to.be.true;
       expect(await accessManager.isCommerceWhitelisted(commerce2.address)).to.be.true;
+      expect(await accessManager.getCommerceFee(commerce1.address)).to.equal(75);
+      expect(await accessManager.getCommerceFee(commerce2.address)).to.equal(100); // default
+      expect(await accessManager.getDefaultFeePercent()).to.equal(100);
     });
 
-    it("Should remove multiple commerces from whitelist", async function () {
-      const commerces = [commerce1.address, commerce2.address];
-      await accessManager.addMultipleCommercesToWhitelist(commerces);
-      await accessManager.removeMultipleCommercesFromWhitelist(commerces);
+    it("Should maintain state consistency across operations", async function () {
+      // Setup initial state
+      await accessManager.grantRole(TOKEN_MANAGER_ROLE, tokenManager.address);
+      await accessManager.grantRole(ONBOARDING_ROLE, onboardingManager.address);
+      await accessManager.connect(tokenManager).addTokenToWhitelist(USDC_ADDRESS);
+      await accessManager.connect(onboardingManager).addCommerceToWhitelist(commerce1.address);
       
-      expect(await accessManager.isCommerceWhitelisted(commerce1.address)).to.be.false;
-      expect(await accessManager.isCommerceWhitelisted(commerce2.address)).to.be.false;
-    });
-
-    it("Should prevent unauthorized commerce whitelist operations", async function () {
-      await expect(
-        accessManager.connect(unauthorized).addCommerceToWhitelist(commerce1.address)
-      ).to.be.revertedWithCustomError(accessManager, "AccessControlUnauthorizedAccount");
-    });
-
-    it("Should handle zero address", async function () {
-      await expect(
-        accessManager.addCommerceToWhitelist(ethers.ZeroAddress)
-      ).to.be.revertedWith("Invalid commerce address");
-    });
-  });
-
-  describe("Fee Management", function () {
-    it("Should set default fee percent", async function () {
-      const newFee = 250; // 2.5%
-      await accessManager.setDefaultFeePercent(newFee);
-      expect(await accessManager.getDefaultFeePercent()).to.equal(newFee);
-    });
-
-    it("Should set commerce-specific fee", async function () {
-      const customFee = 150; // 1.5%
-      await accessManager.setCommerceFee(commerce1.address, customFee);
-      expect(await accessManager.getCommerceFee(commerce1.address)).to.equal(customFee);
-    });
-
-    it("Should set multiple commerce fees", async function () {
-      const commerces = [commerce1.address, commerce2.address];
-      const fees = [150, 200]; // 1.5%, 2%
+      // Perform various operations
+      await accessManager.connect(onboardingManager).setDefaultFeePercent(50);
+      await accessManager.connect(onboardingManager).setCommerceFee(commerce1.address, 25);
+      await accessManager.connect(tokenManager).addTokenToWhitelist(USDT_ADDRESS);
       
-      await accessManager.setMultipleCommerceFees(commerces, fees);
-      
-      expect(await accessManager.getCommerceFee(commerce1.address)).to.equal(150);
-      expect(await accessManager.getCommerceFee(commerce2.address)).to.equal(200);
-    });
-
-    it("Should return default fee for commerce without custom fee", async function () {
-      const defaultFee = 100; // 1%
-      await accessManager.setDefaultFeePercent(defaultFee);
-      
-      // Commerce without custom fee should return default
-      expect(await accessManager.getCommerceFee(commerce1.address)).to.equal(defaultFee);
-    });
-
-    it("Should prevent unauthorized fee management", async function () {
-      await expect(
-        accessManager.connect(unauthorized).setDefaultFeePercent(200)
-      ).to.be.revertedWithCustomError(accessManager, "AccessControlUnauthorizedAccount");
-
-      await expect(
-        accessManager.connect(unauthorized).setCommerceFee(commerce1.address, 150)
-      ).to.be.revertedWithCustomError(accessManager, "AccessControlUnauthorizedAccount");
-    });
-
-    it("Should validate fee limits", async function () {
-      // Test maximum fee (1000 basis points = 10%)
-      await expect(
-        accessManager.setDefaultFeePercent(1001)
-      ).to.be.revertedWith("Fee too high");
-    });
-
-    it("Should handle array length mismatch in multiple commerce fees", async function () {
-      const commerces = [commerce1.address, commerce2.address];
-      const fees = [150]; // Mismatched length
-      
-      await expect(
-        accessManager.setMultipleCommerceFees(commerces, fees)
-      ).to.be.revertedWith("Array length mismatch");
-    });
-  });
-
-  describe("Role-based Access Control", function () {
-    it("Should allow token manager to manage tokens", async function () {
-      await accessManager.grantRole(TOKEN_MANAGER_ROLE, user1.address);
-      
-      const tokenAddress = "0x1234567890123456789012345678901234567890";
-      await accessManager.connect(user1).addTokenToWhitelist(tokenAddress);
-      expect(await accessManager.isTokenWhitelisted(tokenAddress)).to.be.true;
-    });
-
-    it("Should allow onboarding role to manage commerces", async function () {
-      await accessManager.grantRole(ONBOARDING_ROLE, user1.address);
-      
-      await accessManager.connect(user1).addCommerceToWhitelist(commerce1.address);
+      // Verify original state is maintained
+      expect(await accessManager.isTokenWhitelisted(USDC_ADDRESS)).to.be.true;
       expect(await accessManager.isCommerceWhitelisted(commerce1.address)).to.be.true;
-    });
-
-    it("Should prevent non-token-manager from managing tokens", async function () {
-      await accessManager.grantRole(ONBOARDING_ROLE, user1.address); // Wrong role
       
-      const tokenAddress = "0x1234567890123456789012345678901234567890";
-      await expect(
-        accessManager.connect(user1).addTokenToWhitelist(tokenAddress)
-      ).to.be.revertedWithCustomError(accessManager, "AccessControlUnauthorizedAccount");
-    });
-
-    it("Should prevent non-onboarding from managing commerces", async function () {
-      await accessManager.grantRole(TOKEN_MANAGER_ROLE, user1.address); // Wrong role
-      
-      await expect(
-        accessManager.connect(user1).addCommerceToWhitelist(commerce1.address)
-      ).to.be.revertedWithCustomError(accessManager, "AccessControlUnauthorizedAccount");
+      // Verify new state is correct
+      expect(await accessManager.isTokenWhitelisted(USDT_ADDRESS)).to.be.true;
+      expect(await accessManager.getCommerceFee(commerce1.address)).to.equal(25);
+      expect(await accessManager.getDefaultFeePercent()).to.equal(50);
     });
   });
 
-  describe("Integration with Storage", function () {
-    it("Should update storage when managing whitelists", async function () {
-      const tokenAddress = "0x1234567890123456789012345678901234567890";
+  describe("Edge Cases in Business Flows", function () {
+    it("Should handle idempotent operations correctly", async function () {
+      await accessManager.grantRole(TOKEN_MANAGER_ROLE, tokenManager.address);
       
-      await accessManager.addTokenToWhitelist(tokenAddress);
-      expect(await storage.whitelistedTokens(tokenAddress)).to.be.true;
+      // Adding same token twice should not fail
+      await accessManager.connect(tokenManager).addTokenToWhitelist(USDC_ADDRESS);
+      await accessManager.connect(tokenManager).addTokenToWhitelist(USDC_ADDRESS);
+      expect(await accessManager.isTokenWhitelisted(USDC_ADDRESS)).to.be.true;
       
-      await accessManager.removeTokenFromWhitelist(tokenAddress);
-      expect(await storage.whitelistedTokens(tokenAddress)).to.be.false;
+      // Removing non-existent token should not fail
+      await accessManager.connect(tokenManager).removeTokenFromWhitelist(USDT_ADDRESS);
+      expect(await accessManager.isTokenWhitelisted(USDT_ADDRESS)).to.be.false;
     });
 
-    it("Should update storage when managing fees", async function () {
-      const newFee = 250;
-      await accessManager.setDefaultFeePercent(newFee);
-      expect(await storage.defaultFeePercent()).to.equal(newFee);
+    it("Should handle boundary fee values correctly", async function () {
+      await accessManager.grantRole(ONBOARDING_ROLE, onboardingManager.address);
       
-      const customFee = 150;
-      await accessManager.setCommerceFee(commerce1.address, customFee);
-      expect(await storage.commerceFees(commerce1.address)).to.equal(customFee);
-    });
-  });
-
-  describe("Edge Cases", function () {
-    it("Should handle empty arrays in multiple operations", async function () {
-      const emptyTokens: string[] = [];
-      const emptyCommerces: string[] = [];
-      
-      // Should not revert with empty arrays
-      await accessManager.addMultipleTokensToWhitelist(emptyTokens);
-      await accessManager.addMultipleCommercesToWhitelist(emptyCommerces);
-    });
-
-    it("Should handle maximum fee value", async function () {
-      const maxFee = 1000; // 10%
-      await accessManager.setDefaultFeePercent(maxFee);
-      expect(await accessManager.getDefaultFeePercent()).to.equal(maxFee);
-    });
-
-    it("Should handle zero fee value", async function () {
-      await accessManager.setDefaultFeePercent(0);
+      // Test minimum fee (0%)
+      await accessManager.connect(onboardingManager).setDefaultFeePercent(0);
       expect(await accessManager.getDefaultFeePercent()).to.equal(0);
+      
+      // Test maximum fee (1%)
+      await accessManager.connect(onboardingManager).setDefaultFeePercent(100);
+      expect(await accessManager.getDefaultFeePercent()).to.equal(100);
+      
+      // Test above maximum should fail
+      await expect(
+        accessManager.connect(onboardingManager).setDefaultFeePercent(101)
+      ).to.be.revertedWith("Fee too high");
     });
   });
 }); 

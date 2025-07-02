@@ -32,27 +32,6 @@ interface IPaymentProcessor {
         address[] calldata tokens
     ) external view returns (uint256[] memory amounts);
 
-    // Revenue calculations
-    function getCommerceTokens(
-        address commerce
-    ) external view returns (address[] memory);
-
-    function getCommerceRevenue(
-        address commerce,
-        address token
-    ) external view returns (uint256 totalRevenue, uint256 netRevenue);
-
-    function getCommerceAllRevenues(
-        address commerce
-    )
-        external
-        view
-        returns (
-            address[] memory tokens,
-            uint256[] memory totalRevenues,
-            uint256[] memory netRevenues
-        );
-
     // Internal functions exposed for other modules
     function updateInvoicePayment(
         bytes32 invoiceId,
@@ -74,4 +53,28 @@ interface IPaymentProcessor {
     ) external;
 
     function deductServiceFeeBalance(address token, uint256 amount) external;
+
+    // === ANALYTICS FUNCTIONS (Compatibility) ===
+    // Note: These functions are provided for test compatibility
+    // In production, use InvoiceManager through the proxy for analytics
+
+    function getCommerceTokens(
+        address commerce
+    ) external view returns (address[] memory);
+
+    function getCommerceRevenue(
+        address commerce,
+        address token
+    ) external view returns (uint256 totalRevenue, uint256 netRevenue);
+
+    function getCommerceAllRevenues(
+        address commerce
+    )
+        external
+        view
+        returns (
+            address[] memory tokens,
+            uint256[] memory totalRevenues,
+            uint256[] memory netRevenues
+        );
 }

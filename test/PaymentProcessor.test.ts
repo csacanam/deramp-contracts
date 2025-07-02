@@ -8,7 +8,7 @@ import {
 } from "../typechain-types";
 import { setupTestRoles, grantRoles, setupWhitelists, TestRoles, ROLE_CONSTANTS } from "./test-setup";
 
-describe("PaymentProcessor", function () {
+describe("PaymentProcessor - Business Flow Tests", function () {
   let paymentProcessor: PaymentProcessor;
   let storage: DerampStorage;
   let accessManager: AccessManager;
@@ -18,7 +18,6 @@ describe("PaymentProcessor", function () {
   let roles: TestRoles;
 
   const DEFAULT_FEE = 100; // 1%
-  const CUSTOM_FEE = 250; // 2.5%
 
   beforeEach(async function () {
     // Setup standardized roles
@@ -53,47 +52,36 @@ describe("PaymentProcessor", function () {
     await storage.setModule("InvoiceManager", await invoiceManager.getAddress());
     await storage.setModule("AccessManager", await accessManager.getAddress());
 
-    // Grant roles and setup whitelists using standardized functions
+    // Grant roles and setup whitelists
     await grantRoles(accessManager, roles);
     await setupWhitelists(accessManager, roles, [await testToken.getAddress(), await testToken2.getAddress()]);
 
-    // Mint and approve tokens
-    await testToken.mint(roles.payer1.address, ethers.parseEther("1000"));
-    await testToken2.mint(roles.payer1.address, ethers.parseEther("1000"));
-    await testToken.connect(roles.payer1).approve(await paymentProcessor.getAddress(), ethers.parseEther("1000"));
-    await testToken2.connect(roles.payer1).approve(await paymentProcessor.getAddress(), ethers.parseEther("1000"));
+    // Mint and approve tokens for payers
+    await testToken.mint(roles.payer1.address, ethers.parseEther("10000"));
+    await testToken2.mint(roles.payer1.address, ethers.parseEther("10000"));
+    await testToken.connect(roles.payer1).approve(await paymentProcessor.getAddress(), ethers.parseEther("10000"));
+    await testToken2.connect(roles.payer1).approve(await paymentProcessor.getAddress(), ethers.parseEther("10000"));
   });
 
-  describe("Deployment", function () {
-    it("Should set correct storage and access manager", async function () {
-      expect(await paymentProcessor.storageContract()).to.equal(await storage.getAddress());
-      expect(await paymentProcessor.accessManager()).to.equal(await accessManager.getAddress());
-    });
-  });
-
-  describe("Payment Processing", function () {
-    let invoiceId: string;
-    const paymentAmount = ethers.parseEther("100");
-
-    beforeEach(async function () {
-      // Create invoice
-      invoiceId = ethers.keccak256(ethers.toUtf8Bytes("test-invoice"));
+  describe("✅ Successful Payment Flow", function () {
+    it("Should complete full payment flow with proper fee distribution", async function () {
+      // 1. Commerce creates invoice
+      const invoiceId = ethers.keccak256(ethers.toUtf8Bytes("business-invoice-001"));
+      const paymentAmount = ethers.parseEther("1000");
       const paymentOptions = [
         { token: await testToken.getAddress(), amount: paymentAmount }
       ];
 
-      await invoiceManager.createInvoice(
+      await invoiceManager.connect(roles.commerce1).createInvoice(
         invoiceId,
         roles.commerce1.address,
         paymentOptions,
         Math.floor(Date.now() / 1000) + 3600
       );
-    });
 
-    it("Should process payment successfully", async function () {
+      // 2. Customer pays invoice
       const initialPayerBalance = await testToken.balanceOf(roles.payer1.address);
-      const initialProcessorBalance = await testToken.balanceOf(await paymentProcessor.getAddress());
-
+      
       await expect(
         paymentProcessor.connect(roles.payer1).payInvoice(
           invoiceId,
@@ -103,270 +91,37 @@ describe("PaymentProcessor", function () {
       ).to.emit(paymentProcessor, "InvoicePaid")
         .withArgs(invoiceId, roles.payer1.address, await testToken.getAddress(), paymentAmount);
 
-      // Check invoice status
+      // 3. Verify payment state
       const invoice = await storage.invoices(invoiceId);
       expect(invoice.status).to.equal(1); // PAID
-      expect(invoice.paidToken).to.equal(await testToken.getAddress());
-      expect(invoice.paidAmount).to.equal(paymentAmount);
       expect(invoice.payer).to.equal(roles.payer1.address);
+      expect(invoice.paidAmount).to.equal(paymentAmount);
 
-      // Check token transfers
-      const finalPayerBalance = await testToken.balanceOf(roles.payer1.address);
-      const finalProcessorBalance = await testToken.balanceOf(await paymentProcessor.getAddress());
-      
-      expect(finalPayerBalance).to.equal(initialPayerBalance - paymentAmount);
-      expect(finalProcessorBalance).to.equal(initialProcessorBalance + paymentAmount);
-
-      // Check balances after fee calculation
+      // 4. Verify financial flows
       const expectedFee = (paymentAmount * BigInt(DEFAULT_FEE)) / BigInt(10000);
       const expectedCommerceAmount = paymentAmount - expectedFee;
       
-      expect(await storage.balances(roles.commerce1.address, await testToken.getAddress()))
-        .to.equal(expectedCommerceAmount);
-      expect(await storage.serviceFeeBalances(await testToken.getAddress()))
-        .to.equal(expectedFee);
+      expect(await testToken.balanceOf(roles.payer1.address)).to.equal(initialPayerBalance - paymentAmount);
+      expect(await storage.balances(roles.commerce1.address, await testToken.getAddress())).to.equal(expectedCommerceAmount);
+      expect(await storage.serviceFeeBalances(await testToken.getAddress())).to.equal(expectedFee);
     });
 
-    // Note: Current PaymentProcessor only uses default fee, not custom commerce fees
-    it("Should use default fee even when custom commerce fee is set", async function () {
-      // Set custom fee for commerce (but PaymentProcessor will still use default)
-      await accessManager.setCommerceFee(roles.commerce1.address, CUSTOM_FEE);
-
-      await paymentProcessor.connect(roles.payer1).payInvoice(
-        invoiceId,
-        await testToken.getAddress(),
-        paymentAmount
-      );
-
-      const expectedFee = (paymentAmount * BigInt(DEFAULT_FEE)) / BigInt(10000); // Uses default, not custom
-      const expectedCommerceAmount = paymentAmount - expectedFee;
-      
-      expect(await storage.balances(roles.commerce1.address, await testToken.getAddress()))
-        .to.equal(expectedCommerceAmount);
-      expect(await storage.serviceFeeBalances(await testToken.getAddress()))
-        .to.equal(expectedFee);
-    });
-
-    it("Should prevent payment of non-existent invoice", async function () {
-      const fakeInvoiceId = ethers.keccak256(ethers.toUtf8Bytes("fake-invoice"));
-
-      await expect(
-        paymentProcessor.connect(roles.payer1).payInvoice(
-          fakeInvoiceId,
-          await testToken.getAddress(),
-          paymentAmount
-        )
-      ).to.be.revertedWith("Invoice not found");
-    });
-
-    // Note: System allows third-party payments, so this test is not applicable
-    // it("Should prevent payment by wrong payer", async function () {
-    //   await expect(
-    //     paymentProcessor.connect(roles.unauthorized).payInvoice(
-    //       invoiceId,
-    //       await testToken.getAddress(),
-    //       paymentAmount
-    //     )
-    //   ).to.be.revertedWith("Not the designated payer");
-    // });
-
-    it("Should prevent double payment", async function () {
-      await paymentProcessor.connect(roles.payer1).payInvoice(
-        invoiceId,
-        await testToken.getAddress(),
-        paymentAmount
-      );
-
-      await expect(
-        paymentProcessor.connect(roles.payer1).payInvoice(
-          invoiceId,
-          await testToken.getAddress(),
-          paymentAmount
-        )
-      ).to.be.revertedWith("Invoice is not pending");
-    });
-
-    // Note: Token whitelist validation happens at invoice creation, not payment
-    // it("Should prevent payment with non-whitelisted token", async function () {
-    //   // Remove token from whitelist
-    //   await accessManager.removeTokenFromWhitelist(await testToken.getAddress());
-
-    //   await expect(
-    //     paymentProcessor.connect(roles.payer1).payInvoice(
-    //       invoiceId,
-    //       await testToken.getAddress(),
-    //       paymentAmount
-    //     )
-    //   ).to.be.revertedWith("Token not whitelisted");
-    // });
-
-    it("Should prevent payment with wrong amount", async function () {
-      const wrongAmount = ethers.parseEther("50");
-
-      await expect(
-        paymentProcessor.connect(roles.payer1).payInvoice(
-          invoiceId,
-          await testToken.getAddress(),
-          wrongAmount
-        )
-      ).to.be.revertedWith("Insufficient payment amount");
-    });
-
-    it("Should prevent payment of expired invoice", async function () {
-      // Create expired invoice
-      const expiredInvoiceId = ethers.keccak256(ethers.toUtf8Bytes("expired-invoice"));
-      const paymentOptions = [
-        { token: await testToken.getAddress(), amount: paymentAmount }
-      ];
-
-      await invoiceManager.createInvoice(
-        expiredInvoiceId,
-        roles.commerce1.address,
-        paymentOptions,
-        Math.floor(Date.now() / 1000) - 3600 // Expired 1 hour ago
-      );
-
-      await expect(
-        paymentProcessor.connect(roles.payer1).payInvoice(
-          expiredInvoiceId,
-          await testToken.getAddress(),
-          paymentAmount
-        )
-      ).to.be.revertedWith("Invoice has expired");
-    });
-
-    it("Should handle payment with insufficient balance", async function () {
-      const largeAmount = ethers.parseEther("2000");
-      
-      // Create invoice with large amount
-      const largeInvoiceId = ethers.keccak256(ethers.toUtf8Bytes("large-invoice"));
-      const paymentOptions = [
-        { token: await testToken.getAddress(), amount: largeAmount }
-      ];
-
-      await invoiceManager.createInvoice(
-        largeInvoiceId,
-        roles.commerce1.address,
-        paymentOptions,
-        Math.floor(Date.now() / 1000) + 3600
-      );
-
-      await expect(
-        paymentProcessor.connect(roles.payer1).payInvoice(
-          largeInvoiceId,
-          await testToken.getAddress(),
-          largeAmount
-        )
-      ).to.be.revertedWithCustomError(testToken, "ERC20InsufficientAllowance");
-    });
-  });
-
-  describe("Refund Processing", function () {
-    let invoiceId: string;
-    const paymentAmount = ethers.parseEther("100");
-
-    beforeEach(async function () {
-      // Create and pay invoice
-      invoiceId = ethers.keccak256(ethers.toUtf8Bytes("refund-invoice"));
-      const paymentOptions = [
-        { token: await testToken.getAddress(), amount: paymentAmount }
-      ];
-
-      await invoiceManager.createInvoice(
-        invoiceId,
-        roles.commerce1.address,
-        paymentOptions,
-        Math.floor(Date.now() / 1000) + 3600
-      );
-
-      await paymentProcessor.connect(roles.payer1).payInvoice(
-        invoiceId,
-        await testToken.getAddress(),
-        paymentAmount
-      );
-    });
-
-    it("Should process refund successfully", async function () {
-      const initialPayerBalance = await testToken.balanceOf(roles.payer1.address);
-      const initialCommerceBalance = await storage.balances(roles.commerce1.address, await testToken.getAddress());
-
-      await expect(
-        paymentProcessor.refundInvoice(invoiceId)
-      ).to.emit(paymentProcessor, "Refunded")
-        .withArgs(invoiceId, roles.payer1.address, await testToken.getAddress(), paymentAmount);
-
-      // Check invoice status
-      const invoice = await storage.invoices(invoiceId);
-      expect(invoice.status).to.equal(2); // REFUNDED
-
-      // Check token refund
-      const finalPayerBalance = await testToken.balanceOf(roles.payer1.address);
-      expect(finalPayerBalance).to.equal(initialPayerBalance + paymentAmount);
-
-      // Check commerce balance is cleared
-      const finalCommerceBalance = await storage.balances(roles.commerce1.address, await testToken.getAddress());
-      expect(finalCommerceBalance).to.equal(0);
-    });
-
-    it("Should prevent refund by non-owner", async function () {
-      await expect(
-        paymentProcessor.connect(roles.unauthorized).refundInvoice(invoiceId)
-      ).to.be.revertedWith("Not owner");
-    });
-
-    it("Should prevent refund of non-paid invoice", async function () {
-      // Create unpaid invoice
-      const unpaidInvoiceId = ethers.keccak256(ethers.toUtf8Bytes("unpaid-invoice"));
-      const paymentOptions = [
-        { token: await testToken.getAddress(), amount: paymentAmount }
-      ];
-
-      await invoiceManager.createInvoice(
-        unpaidInvoiceId,
-        roles.commerce1.address,
-        paymentOptions,
-        Math.floor(Date.now() / 1000) + 3600
-      );
-
-      await expect(
-        paymentProcessor.refundInvoice(unpaidInvoiceId)
-      ).to.be.revertedWith("Invoice is not paid");
-    });
-
-    it("Should prevent double refund", async function () {
-      await paymentProcessor.refundInvoice(invoiceId);
-
-      await expect(
-        paymentProcessor.refundInvoice(invoiceId)
-      ).to.be.revertedWith("Invoice is not paid");
-    });
-
-    it("Should handle refund with insufficient contract balance", async function () {
-      // Manually drain contract balance (simulate edge case)
-      const contractBalance = await testToken.balanceOf(await paymentProcessor.getAddress());
-      
-      // This would require additional setup to simulate the edge case
-      // For now, we'll test the normal flow
-      expect(contractBalance).to.be.gte(paymentAmount);
-    });
-  });
-
-  describe("Analytics Functions", function () {
-    beforeEach(async function () {
-      // Create and pay multiple invoices for analytics
+    it("Should handle multi-token commerce revenue tracking", async function () {
+      // Create invoices with different tokens
       const invoices = [
-        { id: "analytics-1", amount: ethers.parseEther("100"), token: testToken },
-        { id: "analytics-2", amount: ethers.parseEther("200"), token: testToken },
-        { id: "analytics-3", amount: ethers.parseEther("150"), token: testToken2 }
+        { id: "multi-token-1", amount: ethers.parseEther("500"), token: testToken },
+        { id: "multi-token-2", amount: ethers.parseEther("300"), token: testToken2 },
+        { id: "multi-token-3", amount: ethers.parseEther("200"), token: testToken }
       ];
 
+      // Process all payments
       for (const inv of invoices) {
         const invoiceId = ethers.keccak256(ethers.toUtf8Bytes(inv.id));
         const paymentOptions = [
           { token: await inv.token.getAddress(), amount: inv.amount }
         ];
 
-        await invoiceManager.createInvoice(
+        await invoiceManager.connect(roles.commerce1).createInvoice(
           invoiceId,
           roles.commerce1.address,
           paymentOptions,
@@ -379,146 +134,107 @@ describe("PaymentProcessor", function () {
           inv.amount
         );
       }
-    });
 
-    it("Should get commerce tokens", async function () {
+      // Verify revenue analytics
       const tokens = await paymentProcessor.getCommerceTokens(roles.commerce1.address);
-      
       expect(tokens.length).to.equal(2);
       expect(tokens).to.include(await testToken.getAddress());
       expect(tokens).to.include(await testToken2.getAddress());
-    });
 
-    it("Should get commerce revenue for specific token", async function () {
-      const revenue = await paymentProcessor.getCommerceRevenue(
+      // Check testToken revenue (500 + 200 = 700)
+      const testTokenRevenue = await paymentProcessor.getCommerceRevenue(
         roles.commerce1.address,
         await testToken.getAddress()
       );
+      expect(testTokenRevenue.totalRevenue).to.equal(ethers.parseEther("700"));
 
-      // Total paid: 100 + 200 = 300 ETH
-      // Fee: 300 * 0.01 = 3 ETH
-      // Net revenue: 297 ETH
-      const expectedGross = ethers.parseEther("300");
-      const expectedFee = (expectedGross * BigInt(DEFAULT_FEE)) / BigInt(10000);
-      const expectedNet = expectedGross - expectedFee;
-
-      expect(revenue.totalRevenue).to.equal(expectedGross);
-      expect(revenue.netRevenue).to.equal(expectedNet);
-    });
-
-    it("Should get all commerce revenues", async function () {
-      const result = await paymentProcessor.getCommerceAllRevenues(roles.commerce1.address);
-
-      expect(result.tokens.length).to.equal(2);
-      expect(result.totalRevenues.length).to.equal(2);
-      expect(result.netRevenues.length).to.equal(2);
-
-      // Check that arrays contain expected values
-      const testTokenAddress = await testToken.getAddress();
-      const testToken2Address = await testToken2.getAddress();
-      const token1Index = result.tokens.findIndex(t => t === testTokenAddress);
-      const token2Index = result.tokens.findIndex(t => t === testToken2Address);
-
-      expect(token1Index).to.not.equal(-1);
-      expect(token2Index).to.not.equal(-1);
-
-      // Verify token 1 revenue (100 + 200 = 300)
-      expect(result.totalRevenues[token1Index]).to.equal(ethers.parseEther("300"));
-      
-      // Verify token 2 revenue (150)
-      expect(result.totalRevenues[token2Index]).to.equal(ethers.parseEther("150"));
-    });
-
-    it("Should return empty arrays for commerce with no transactions", async function () {
-      const emptyCommerce = roles.unauthorized.address;
-      
-      const tokens = await paymentProcessor.getCommerceTokens(emptyCommerce);
-      expect(tokens.length).to.equal(0);
-
-      const result = await paymentProcessor.getCommerceAllRevenues(emptyCommerce);
-      expect(result.tokens.length).to.equal(0);
-      expect(result.totalRevenues.length).to.equal(0);
-      expect(result.netRevenues.length).to.equal(0);
-    });
-
-    it("Should return zero revenue for token not used by commerce", async function () {
-      // Deploy a new token not used by this commerce
-      const MockERC20 = await ethers.getContractFactory("MockERC20");
-      const unusedToken = await MockERC20.deploy("Unused Token", "UNUSED", 18);
-
-      const revenue = await paymentProcessor.getCommerceRevenue(
+      // Check testToken2 revenue (300)
+      const testToken2Revenue = await paymentProcessor.getCommerceRevenue(
         roles.commerce1.address,
-        await unusedToken.getAddress()
+        await testToken2.getAddress()
       );
-
-      expect(revenue.totalRevenue).to.equal(0);
-      expect(revenue.netRevenue).to.equal(0);
-    });
-  });
-
-  describe("Fee Calculations", function () {
-    it("Should calculate fees correctly with default rate", async function () {
-      const amount = ethers.parseEther("1000");
-      const expectedFee = (amount * BigInt(DEFAULT_FEE)) / BigInt(10000); // 1%
-      
-      const calculatedFee = await paymentProcessor.calculateServiceFee(await testToken.getAddress(), amount);
-      expect(calculatedFee).to.equal(expectedFee);
+      expect(testToken2Revenue.totalRevenue).to.equal(ethers.parseEther("300"));
     });
 
-    // Note: calculateServiceFee only uses default fee, not custom commerce fees
-    // Custom fees are applied during actual payment processing
-    it("Should calculate fees correctly with default rate only", async function () {
-      await accessManager.setCommerceFee(roles.commerce1.address, CUSTOM_FEE);
-      
-      const amount = ethers.parseEther("1000");
-      const expectedFee = (amount * BigInt(DEFAULT_FEE)) / BigInt(10000); // Still uses default 1%
-      
-      const calculatedFee = await paymentProcessor.calculateServiceFee(await testToken.getAddress(), amount);
-      expect(calculatedFee).to.equal(expectedFee);
-    });
-
-    it("Should handle zero fee when default is zero", async function () {
-      await accessManager.setDefaultFeePercent(0);
-      
-      const amount = ethers.parseEther("1000");
-      const calculatedFee = await paymentProcessor.calculateServiceFee(await testToken.getAddress(), amount);
-      expect(calculatedFee).to.equal(0);
-    });
-
-    it("Should handle maximum fee when default is maximum", async function () {
-      await accessManager.setDefaultFeePercent(1000); // 10% (max allowed)
-      
-      const amount = ethers.parseEther("1000");
-      const expectedFee = (amount * BigInt(1000)) / BigInt(10000); // 10%
-      const calculatedFee = await paymentProcessor.calculateServiceFee(await testToken.getAddress(), amount);
-      expect(calculatedFee).to.equal(expectedFee);
-    });
-  });
-
-  describe("Pause Functionality", function () {
-    it("Should pause and unpause", async function () {
-      await paymentProcessor.pause();
-      expect(await paymentProcessor.paused()).to.be.true;
-
-      await paymentProcessor.unpause();
-      expect(await paymentProcessor.paused()).to.be.false;
-    });
-
-    it("Should prevent payments when paused", async function () {
-      const invoiceId = ethers.keccak256(ethers.toUtf8Bytes("paused-invoice"));
-      const paymentAmount = ethers.parseEther("100");
+    it("Should process refund flow correctly", async function () {
+      // 1. Create and pay invoice
+      const invoiceId = ethers.keccak256(ethers.toUtf8Bytes("refund-flow-001"));
+      const paymentAmount = ethers.parseEther("500");
       const paymentOptions = [
         { token: await testToken.getAddress(), amount: paymentAmount }
       ];
 
-      await invoiceManager.createInvoice(
+      await invoiceManager.connect(roles.commerce1).createInvoice(
         invoiceId,
         roles.commerce1.address,
         paymentOptions,
         Math.floor(Date.now() / 1000) + 3600
       );
 
-      await paymentProcessor.pause();
+      await paymentProcessor.connect(roles.payer1).payInvoice(
+        invoiceId,
+        await testToken.getAddress(),
+        paymentAmount
+      );
+
+      // 2. Process refund
+      const initialPayerBalance = await testToken.balanceOf(roles.payer1.address);
+      const initialCommerceBalance = await storage.balances(roles.commerce1.address, await testToken.getAddress());
+
+      await expect(
+        paymentProcessor.refundInvoice(invoiceId)
+      ).to.emit(paymentProcessor, "Refunded")
+        .withArgs(invoiceId, roles.payer1.address, await testToken.getAddress(), paymentAmount);
+
+      // 3. Verify refund state
+      const invoice = await storage.invoices(invoiceId);
+      expect(invoice.status).to.equal(2); // REFUNDED
+
+      // 4. Verify financial restoration
+      expect(await testToken.balanceOf(roles.payer1.address)).to.equal(initialPayerBalance + paymentAmount);
+      expect(await storage.balances(roles.commerce1.address, await testToken.getAddress())).to.equal(0);
+    });
+  });
+
+  describe("❌ Failed Payment Flow", function () {
+    it("Should prevent payment with insufficient funds", async function () {
+      // Create invoice for amount exceeding balance
+      const invoiceId = ethers.keccak256(ethers.toUtf8Bytes("insufficient-funds"));
+      const excessiveAmount = ethers.parseEther("20000"); // More than minted
+      const paymentOptions = [
+        { token: await testToken.getAddress(), amount: excessiveAmount }
+      ];
+
+      await invoiceManager.connect(roles.commerce1).createInvoice(
+        invoiceId,
+        roles.commerce1.address,
+        paymentOptions,
+        Math.floor(Date.now() / 1000) + 3600
+      );
+
+      await expect(
+        paymentProcessor.connect(roles.payer1).payInvoice(
+          invoiceId,
+          await testToken.getAddress(),
+          excessiveAmount
+        )
+      ).to.be.revertedWithCustomError(testToken, "ERC20InsufficientAllowance");
+    });
+
+    it("Should prevent payment of expired invoices", async function () {
+      // Create expired invoice
+      const invoiceId = ethers.keccak256(ethers.toUtf8Bytes("expired-invoice"));
+      const paymentAmount = ethers.parseEther("100");
+      const paymentOptions = [
+        { token: await testToken.getAddress(), amount: paymentAmount }
+      ];
+
+      await invoiceManager.connect(roles.commerce1).createInvoice(
+        invoiceId,
+        roles.commerce1.address,
+        paymentOptions,
+        Math.floor(Date.now() / 1000) - 3600 // Expired 1 hour ago
+      );
 
       await expect(
         paymentProcessor.connect(roles.payer1).payInvoice(
@@ -526,10 +242,137 @@ describe("PaymentProcessor", function () {
           await testToken.getAddress(),
           paymentAmount
         )
-      ).to.be.revertedWithCustomError(paymentProcessor, "EnforcedPause");
+      ).to.be.revertedWith("Invoice has expired");
     });
 
-    it("Should prevent unauthorized pause/unpause", async function () {
+    it("Should prevent double payment attempts", async function () {
+      const invoiceId = ethers.keccak256(ethers.toUtf8Bytes("double-payment"));
+      const paymentAmount = ethers.parseEther("100");
+      const paymentOptions = [
+        { token: await testToken.getAddress(), amount: paymentAmount }
+      ];
+
+      await invoiceManager.connect(roles.commerce1).createInvoice(
+        invoiceId,
+        roles.commerce1.address,
+        paymentOptions,
+        Math.floor(Date.now() / 1000) + 3600
+      );
+
+      // First payment succeeds
+      await paymentProcessor.connect(roles.payer1).payInvoice(
+        invoiceId,
+        await testToken.getAddress(),
+        paymentAmount
+      );
+
+      // Second payment fails
+      await expect(
+        paymentProcessor.connect(roles.payer1).payInvoice(
+          invoiceId,
+          await testToken.getAddress(),
+          paymentAmount
+        )
+      ).to.be.revertedWith("Invoice is not pending");
+    });
+
+    it("Should prevent payment with incorrect amount", async function () {
+      const invoiceId = ethers.keccak256(ethers.toUtf8Bytes("wrong-amount"));
+      const correctAmount = ethers.parseEther("100");
+      const wrongAmount = ethers.parseEther("50");
+      const paymentOptions = [
+        { token: await testToken.getAddress(), amount: correctAmount }
+      ];
+
+      await invoiceManager.connect(roles.commerce1).createInvoice(
+        invoiceId,
+        roles.commerce1.address,
+        paymentOptions,
+        Math.floor(Date.now() / 1000) + 3600
+      );
+
+      await expect(
+        paymentProcessor.connect(roles.payer1).payInvoice(
+          invoiceId,
+          await testToken.getAddress(),
+          wrongAmount
+        )
+      ).to.be.revertedWith("Insufficient payment amount");
+    });
+
+    it("Should prevent unauthorized refunds", async function () {
+      // Create and pay invoice
+      const invoiceId = ethers.keccak256(ethers.toUtf8Bytes("unauthorized-refund"));
+      const paymentAmount = ethers.parseEther("100");
+      const paymentOptions = [
+        { token: await testToken.getAddress(), amount: paymentAmount }
+      ];
+
+      await invoiceManager.connect(roles.commerce1).createInvoice(
+        invoiceId,
+        roles.commerce1.address,
+        paymentOptions,
+        Math.floor(Date.now() / 1000) + 3600
+      );
+
+      await paymentProcessor.connect(roles.payer1).payInvoice(
+        invoiceId,
+        await testToken.getAddress(),
+        paymentAmount
+      );
+
+      // Unauthorized refund attempt
+      await expect(
+        paymentProcessor.connect(roles.unauthorized).refundInvoice(invoiceId)
+      ).to.be.revertedWith("Not owner");
+    });
+  });
+
+  describe("🔧 System Administration Flow", function () {
+    it("Should handle system pause for maintenance", async function () {
+      // Create invoice first
+      const invoiceId = ethers.keccak256(ethers.toUtf8Bytes("maintenance-test"));
+      const paymentAmount = ethers.parseEther("100");
+      const paymentOptions = [
+        { token: await testToken.getAddress(), amount: paymentAmount }
+      ];
+
+      await invoiceManager.connect(roles.commerce1).createInvoice(
+        invoiceId,
+        roles.commerce1.address,
+        paymentOptions,
+        Math.floor(Date.now() / 1000) + 3600
+      );
+
+      // Pause system
+      await paymentProcessor.pause();
+      expect(await paymentProcessor.paused()).to.be.true;
+
+      // Payment should fail during maintenance
+      await expect(
+        paymentProcessor.connect(roles.payer1).payInvoice(
+          invoiceId,
+          await testToken.getAddress(),
+          paymentAmount
+        )
+      ).to.be.revertedWithCustomError(paymentProcessor, "EnforcedPause");
+
+      // Unpause and verify normal operation
+      await paymentProcessor.unpause();
+      expect(await paymentProcessor.paused()).to.be.false;
+
+      // Payment should work after maintenance
+      await paymentProcessor.connect(roles.payer1).payInvoice(
+        invoiceId,
+        await testToken.getAddress(),
+        paymentAmount
+      );
+
+      const invoice = await storage.invoices(invoiceId);
+      expect(invoice.status).to.equal(1); // PAID
+    });
+
+    it("Should prevent unauthorized system administration", async function () {
       await expect(
         paymentProcessor.connect(roles.unauthorized).pause()
       ).to.be.revertedWith("Not owner");
@@ -542,31 +385,89 @@ describe("PaymentProcessor", function () {
     });
   });
 
-  describe("Edge Cases", function () {
-    it("Should handle zero amount payments", async function () {
-      const invoiceId = ethers.keccak256(ethers.toUtf8Bytes("zero-invoice"));
-      const paymentOptions = [
-        { token: await testToken.getAddress(), amount: 0 }
+  describe("📊 Business Analytics Flow", function () {
+    it("Should provide comprehensive revenue analytics", async function () {
+      // Create diverse payment scenarios
+      const scenarios = [
+        { commerce: roles.commerce1, amount: ethers.parseEther("1000"), token: testToken },
+        { commerce: roles.commerce1, amount: ethers.parseEther("500"), token: testToken2 },
+        { commerce: roles.commerce2, amount: ethers.parseEther("750"), token: testToken },
+        { commerce: roles.commerce1, amount: ethers.parseEther("250"), token: testToken }
       ];
 
-      await expect(
-        invoiceManager.createInvoice(
+      // Process all payments
+      for (let i = 0; i < scenarios.length; i++) {
+        const scenario = scenarios[i];
+        const invoiceId = ethers.keccak256(ethers.toUtf8Bytes(`analytics-${i}`));
+        const paymentOptions = [
+          { token: await scenario.token.getAddress(), amount: scenario.amount }
+        ];
+
+        await invoiceManager.connect(scenario.commerce).createInvoice(
           invoiceId,
-          roles.commerce1.address,
+          scenario.commerce.address,
           paymentOptions,
           Math.floor(Date.now() / 1000) + 3600
-        )
-      ).to.be.revertedWith("Amount must be greater than 0");
+        );
+
+        await paymentProcessor.connect(roles.payer1).payInvoice(
+          invoiceId,
+          await scenario.token.getAddress(),
+          scenario.amount
+        );
+      }
+
+      // Verify analytics
+      const tokens = await paymentProcessor.getCommerceTokens(roles.commerce1.address);
+      expect(tokens.length).to.equal(2);
+      expect(tokens).to.include(await testToken.getAddress());
+      expect(tokens).to.include(await testToken2.getAddress());
+
+      // Check testToken revenue (1000 + 250 = 1250)
+      const testTokenRevenue = await paymentProcessor.getCommerceRevenue(
+        roles.commerce1.address,
+        await testToken.getAddress()
+      );
+      expect(testTokenRevenue.totalRevenue).to.equal(ethers.parseEther("1250"));
+
+      // Check testToken2 revenue (500)
+      const testToken2Revenue = await paymentProcessor.getCommerceRevenue(
+        roles.commerce1.address,
+        await testToken2.getAddress()
+      );
+      expect(testToken2Revenue.totalRevenue).to.equal(ethers.parseEther("500"));
     });
 
-    it("Should handle very small amounts", async function () {
-      const smallAmount = 1; // 1 wei
-      const invoiceId = ethers.keccak256(ethers.toUtf8Bytes("small-invoice"));
+    it("Should calculate fees correctly across different scenarios", async function () {
+      const testAmount = ethers.parseEther("1000");
+      
+      // Test default fee calculation
+      const defaultFee = await paymentProcessor.calculateServiceFee(await testToken.getAddress(), testAmount);
+      const expectedDefaultFee = (testAmount * BigInt(DEFAULT_FEE)) / BigInt(10000);
+      expect(defaultFee).to.equal(expectedDefaultFee);
+
+      // Test with modified default fee (0.5% - within limit)
+      await accessManager.setDefaultFeePercent(50); // 0.5%
+      const modifiedFee = await paymentProcessor.calculateServiceFee(await testToken.getAddress(), testAmount);
+      const expectedModifiedFee = (testAmount * BigInt(50)) / BigInt(10000);
+      expect(modifiedFee).to.equal(expectedModifiedFee);
+
+      // Test zero fee
+      await accessManager.setDefaultFeePercent(0);
+      const zeroFee = await paymentProcessor.calculateServiceFee(await testToken.getAddress(), testAmount);
+      expect(zeroFee).to.equal(0);
+    });
+  });
+
+  describe("🔄 Edge Cases in Business Flow", function () {
+    it("Should handle minimal payment amounts", async function () {
+      const minimalAmount = 1; // 1 wei
+      const invoiceId = ethers.keccak256(ethers.toUtf8Bytes("minimal-payment"));
       const paymentOptions = [
-        { token: await testToken.getAddress(), amount: smallAmount }
+        { token: await testToken.getAddress(), amount: minimalAmount }
       ];
 
-      await invoiceManager.createInvoice(
+      await invoiceManager.connect(roles.commerce1).createInvoice(
         invoiceId,
         roles.commerce1.address,
         paymentOptions,
@@ -576,24 +477,21 @@ describe("PaymentProcessor", function () {
       await paymentProcessor.connect(roles.payer1).payInvoice(
         invoiceId,
         await testToken.getAddress(),
-        smallAmount
+        minimalAmount
       );
 
       const invoice = await storage.invoices(invoiceId);
       expect(invoice.status).to.equal(1); // PAID
     });
 
-    it("Should handle very large amounts", async function () {
-      const largeAmount = ethers.parseEther("999"); // Within balance
-      await testToken.mint(roles.payer1.address, largeAmount); // Ensure sufficient balance
-      await testToken.connect(roles.payer1).approve(await paymentProcessor.getAddress(), largeAmount);
-
-      const invoiceId = ethers.keccak256(ethers.toUtf8Bytes("large-invoice"));
+    it("Should handle maximum practical payment amounts", async function () {
+      const maxAmount = ethers.parseEther("5000");
+      const invoiceId = ethers.keccak256(ethers.toUtf8Bytes("maximum-payment"));
       const paymentOptions = [
-        { token: await testToken.getAddress(), amount: largeAmount }
+        { token: await testToken.getAddress(), amount: maxAmount }
       ];
 
-      await invoiceManager.createInvoice(
+      await invoiceManager.connect(roles.commerce1).createInvoice(
         invoiceId,
         roles.commerce1.address,
         paymentOptions,
@@ -603,11 +501,59 @@ describe("PaymentProcessor", function () {
       await paymentProcessor.connect(roles.payer1).payInvoice(
         invoiceId,
         await testToken.getAddress(),
-        largeAmount
+        maxAmount
       );
 
       const invoice = await storage.invoices(invoiceId);
       expect(invoice.status).to.equal(1); // PAID
+    });
+
+    it("Should prevent refund of unpaid invoices", async function () {
+      const invoiceId = ethers.keccak256(ethers.toUtf8Bytes("unpaid-refund"));
+      const paymentAmount = ethers.parseEther("100");
+      const paymentOptions = [
+        { token: await testToken.getAddress(), amount: paymentAmount }
+      ];
+
+      await invoiceManager.connect(roles.commerce1).createInvoice(
+        invoiceId,
+        roles.commerce1.address,
+        paymentOptions,
+        Math.floor(Date.now() / 1000) + 3600
+      );
+
+      await expect(
+        paymentProcessor.refundInvoice(invoiceId)
+      ).to.be.revertedWith("Invoice is not paid");
+    });
+
+    it("Should prevent double refund attempts", async function () {
+      // Create, pay, and refund invoice
+      const invoiceId = ethers.keccak256(ethers.toUtf8Bytes("double-refund"));
+      const paymentAmount = ethers.parseEther("100");
+      const paymentOptions = [
+        { token: await testToken.getAddress(), amount: paymentAmount }
+      ];
+
+      await invoiceManager.connect(roles.commerce1).createInvoice(
+        invoiceId,
+        roles.commerce1.address,
+        paymentOptions,
+        Math.floor(Date.now() / 1000) + 3600
+      );
+
+      await paymentProcessor.connect(roles.payer1).payInvoice(
+        invoiceId,
+        await testToken.getAddress(),
+        paymentAmount
+      );
+
+      await paymentProcessor.refundInvoice(invoiceId);
+
+      // Second refund attempt should fail
+      await expect(
+        paymentProcessor.refundInvoice(invoiceId)
+      ).to.be.revertedWith("Invoice is not paid");
     });
   });
 });

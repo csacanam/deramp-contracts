@@ -26,6 +26,11 @@ interface ITreasuryManager {
         view
         returns (address[] memory);
 
+    function getTreasuryWallets()
+        external
+        view
+        returns (IDerampStorage.TreasuryWallet[] memory);
+
     // Service fee withdrawals
     function withdrawServiceFeesToTreasury(address token, address to) external;
 
@@ -34,13 +39,7 @@ interface ITreasuryManager {
         address to
     ) external;
 
-    // Legacy withdrawal functions (backwards compatibility)
-    function withdrawServiceFees(address token, address to) external;
-
-    function withdrawAllServiceFees(
-        address[] calldata tokens,
-        address to
-    ) external;
+    function withdrawAllServiceFeesToTreasury(address to) external;
 
     // Treasury withdrawal history
     function getServiceFeeWithdrawalIndices()

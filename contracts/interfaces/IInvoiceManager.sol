@@ -12,13 +12,6 @@ interface IInvoiceManager {
         uint256 expiresAt
     ) external;
 
-    function createMultipleInvoices(
-        bytes32[] calldata ids,
-        address[] calldata commerces,
-        IDerampStorage.PaymentOption[][] calldata paymentOptionsArray,
-        uint256[] calldata expiresAtArray
-    ) external;
-
     function cancelInvoice(bytes32 id) external;
 
     function expireInvoice(bytes32 id) external;

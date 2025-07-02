@@ -81,23 +81,8 @@ contract AccessManager is AccessControl, IAccessManager {
         return storageContract.whitelistedTokens(token);
     }
 
-    function addMultipleTokensToWhitelist(
-        address[] calldata tokens
-    ) external onlyRole(TOKEN_MANAGER_ROLE) {
-        for (uint256 i = 0; i < tokens.length; i++) {
-            require(tokens[i] != address(0), "Invalid token address");
-            storageContract.setWhitelistedToken(tokens[i], true);
-            emit TokenWhitelisted(tokens[i], true);
-        }
-    }
-
-    function removeMultipleTokensFromWhitelist(
-        address[] calldata tokens
-    ) external onlyRole(TOKEN_MANAGER_ROLE) {
-        for (uint256 i = 0; i < tokens.length; i++) {
-            storageContract.setWhitelistedToken(tokens[i], false);
-            emit TokenWhitelisted(tokens[i], false);
-        }
+    function getWhitelistedTokens() external view returns (address[] memory) {
+        return storageContract.getWhitelistedTokens();
     }
 
     // === COMMERCE WHITELIST MANAGEMENT ===
@@ -123,31 +108,12 @@ contract AccessManager is AccessControl, IAccessManager {
         return storageContract.whitelistedCommerces(commerce);
     }
 
-    function addMultipleCommercesToWhitelist(
-        address[] calldata commerces
-    ) external onlyRole(ONBOARDING_ROLE) {
-        for (uint256 i = 0; i < commerces.length; i++) {
-            require(commerces[i] != address(0), "Invalid commerce address");
-            storageContract.setWhitelistedCommerce(commerces[i], true);
-            emit CommerceWhitelisted(commerces[i], true);
-        }
-    }
-
-    function removeMultipleCommercesFromWhitelist(
-        address[] calldata commerces
-    ) external onlyRole(ONBOARDING_ROLE) {
-        for (uint256 i = 0; i < commerces.length; i++) {
-            storageContract.setWhitelistedCommerce(commerces[i], false);
-            emit CommerceWhitelisted(commerces[i], false);
-        }
-    }
-
     // === FEE MANAGEMENT ===
 
     function setDefaultFeePercent(
         uint256 feePercent
     ) external onlyRole(ONBOARDING_ROLE) {
-        require(feePercent <= 1000, "Fee too high"); // Max 10%
+        require(feePercent <= 100, "Fee too high"); // Max 1%
         storageContract.setDefaultFeePercent(feePercent);
         emit DefaultFeePercentUpdated(feePercent);
     }
@@ -156,7 +122,7 @@ contract AccessManager is AccessControl, IAccessManager {
         address commerce,
         uint256 feePercent
     ) external onlyRole(ONBOARDING_ROLE) {
-        require(feePercent <= 1000, "Fee too high"); // Max 10%
+        require(feePercent <= 100, "Fee too high"); // Max 1%
         storageContract.setCommerceFee(commerce, feePercent);
         emit CommerceFeeUpdated(commerce, feePercent);
     }
@@ -168,22 +134,6 @@ contract AccessManager is AccessControl, IAccessManager {
 
     function getDefaultFeePercent() external view returns (uint256) {
         return storageContract.defaultFeePercent();
-    }
-
-    function setMultipleCommerceFees(
-        address[] calldata commerces,
-        uint256[] calldata feePercents
-    ) external onlyRole(ONBOARDING_ROLE) {
-        require(
-            commerces.length == feePercents.length,
-            "Array length mismatch"
-        );
-
-        for (uint256 i = 0; i < commerces.length; i++) {
-            require(feePercents[i] <= 1000, "Fee too high"); // Max 10%
-            storageContract.setCommerceFee(commerces[i], feePercents[i]);
-            emit CommerceFeeUpdated(commerces[i], feePercents[i]);
-        }
     }
 
     // === ROLE CONSTANTS (for external access) ===

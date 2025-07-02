@@ -14,15 +14,11 @@ contract TreasuryManager is Pausable, ITreasuryManager {
     DerampStorage public immutable storageContract;
     IAccessManager public immutable accessManager;
 
-    bytes32 public constant DEFAULT_ADMIN_ROLE = 0x00;
     bytes32 public constant TREASURY_MANAGER_ROLE =
         keccak256("TREASURY_MANAGER_ROLE");
 
     modifier onlyOwner() {
-        require(
-            accessManager.hasRole(DEFAULT_ADMIN_ROLE, msg.sender),
-            "Not owner"
-        );
+        require(accessManager.hasRole(0x00, msg.sender), "Not owner");
         _;
     }
 
@@ -109,32 +105,37 @@ contract TreasuryManager is Pausable, ITreasuryManager {
         require(totalWithdrawn > 0, "No service fees to withdraw");
     }
 
-    function withdrawServiceFees(
-        address token,
+    function withdrawAllServiceFeesToTreasury(
         address to
-    ) external onlyOwner whenNotPaused {
-        uint256 amount = storageContract.getServiceFeeBalance(token);
-        require(amount > 0, "No service fees to withdraw");
+    ) external onlyTreasuryManager whenNotPaused {
+        require(to != address(0), "Invalid treasury address");
+        require(
+            storageContract.getTreasuryWallet(to).isActive,
+            "Treasury wallet not active"
+        );
 
-        storageContract.subtractServiceFeeBalance(token, amount);
-        IERC20(token).safeTransfer(to, amount);
+        // Get tokens with service fees
+        address[] memory serviceFeeTokens = storageContract
+            .getServiceFeeTokens();
+        require(serviceFeeTokens.length > 0, "No tokens with service fees");
 
-        emit IDerampStorage.ServiceFeeWithdrawn(token, amount, to);
-    }
-
-    function withdrawAllServiceFees(
-        address[] calldata tokens,
-        address to
-    ) external onlyOwner whenNotPaused {
-        require(tokens.length > 0, "No tokens provided");
         uint256 totalWithdrawn = 0;
 
-        for (uint256 i = 0; i < tokens.length; i++) {
-            uint256 amount = storageContract.getServiceFeeBalance(tokens[i]);
+        for (uint256 i = 0; i < serviceFeeTokens.length; i++) {
+            uint256 amount = storageContract.getServiceFeeBalance(
+                serviceFeeTokens[i]
+            );
             if (amount > 0) {
-                storageContract.subtractServiceFeeBalance(tokens[i], amount);
-                IERC20(tokens[i]).safeTransfer(to, amount);
-                emit IDerampStorage.ServiceFeeWithdrawn(tokens[i], amount, to);
+                storageContract.subtractServiceFeeBalance(
+                    serviceFeeTokens[i],
+                    amount
+                );
+                IERC20(serviceFeeTokens[i]).safeTransfer(to, amount);
+                emit IDerampStorage.ServiceFeeWithdrawn(
+                    serviceFeeTokens[i],
+                    amount,
+                    to
+                );
                 totalWithdrawn++;
             }
         }
@@ -186,6 +187,22 @@ contract TreasuryManager is Pausable, ITreasuryManager {
         IDerampStorage.TreasuryWallet memory treasuryWallet = storageContract
             .getTreasuryWallet(wallet);
         return treasuryWallet.wallet != address(0) && treasuryWallet.isActive;
+    }
+
+    function getTreasuryWallets()
+        external
+        view
+        returns (IDerampStorage.TreasuryWallet[] memory)
+    {
+        address[] memory walletsList = storageContract.getTreasuryWalletsList();
+        IDerampStorage.TreasuryWallet[]
+            memory wallets = new IDerampStorage.TreasuryWallet[](
+                walletsList.length
+            );
+        for (uint256 i = 0; i < walletsList.length; i++) {
+            wallets[i] = storageContract.getTreasuryWallet(walletsList[i]);
+        }
+        return wallets;
     }
 
     // === SIMPLIFIED WITHDRAWAL FUNCTIONS ===

@@ -10,13 +10,8 @@ contract InvoiceManager is Pausable, IInvoiceManager {
     DerampStorage public immutable storageContract;
     IAccessManager public immutable accessManager;
 
-    bytes32 public constant DEFAULT_ADMIN_ROLE = 0x00;
-
     modifier onlyOwner() {
-        require(
-            accessManager.hasRole(DEFAULT_ADMIN_ROLE, msg.sender),
-            "Not owner"
-        );
+        require(accessManager.hasRole(0x00, msg.sender), "Not owner");
         _;
     }
 
@@ -41,7 +36,7 @@ contract InvoiceManager is Pausable, IInvoiceManager {
         address commerce,
         IDerampStorage.PaymentOption[] calldata paymentOptions,
         uint256 expiresAt
-    ) external onlyOwner whenNotPaused {
+    ) external whenNotPaused {
         require(
             storageContract.getInvoice(id).id == bytes32(0),
             "Invoice already exists"
@@ -50,6 +45,10 @@ contract InvoiceManager is Pausable, IInvoiceManager {
         require(
             accessManager.isCommerceWhitelisted(commerce),
             "Commerce not whitelisted"
+        );
+        require(
+            msg.sender == commerce || accessManager.hasRole(0x00, msg.sender),
+            "Not authorized to create invoice for this commerce"
         );
         require(
             paymentOptions.length > 0,
@@ -95,80 +94,6 @@ contract InvoiceManager is Pausable, IInvoiceManager {
         emit IDerampStorage.InvoiceCreated(id, commerce);
     }
 
-    function createMultipleInvoices(
-        bytes32[] calldata ids,
-        address[] calldata commerces,
-        IDerampStorage.PaymentOption[][] calldata paymentOptionsArray,
-        uint256[] calldata expiresAtArray
-    ) external onlyOwner whenNotPaused {
-        require(ids.length == commerces.length, "Array length mismatch");
-        require(
-            ids.length == paymentOptionsArray.length,
-            "Array length mismatch"
-        );
-        require(ids.length == expiresAtArray.length, "Array length mismatch");
-
-        for (uint256 i = 0; i < ids.length; i++) {
-            // Inline createInvoice logic
-            require(
-                storageContract.getInvoice(ids[i]).id == bytes32(0),
-                "Invoice already exists"
-            );
-            require(commerces[i] != address(0), "Invalid commerce");
-            require(
-                accessManager.isCommerceWhitelisted(commerces[i]),
-                "Commerce not whitelisted"
-            );
-            require(
-                paymentOptionsArray[i].length > 0,
-                "At least one payment option required"
-            );
-
-            // Validate all payment options
-            for (uint256 j = 0; j < paymentOptionsArray[i].length; j++) {
-                require(
-                    accessManager.isTokenWhitelisted(
-                        paymentOptionsArray[i][j].token
-                    ),
-                    "Token not whitelisted"
-                );
-                require(
-                    paymentOptionsArray[i][j].amount > 0,
-                    "Amount must be greater than 0"
-                );
-            }
-
-            IDerampStorage.Invoice memory invoice = IDerampStorage.Invoice({
-                id: ids[i],
-                payer: address(0),
-                commerce: commerces[i],
-                paidToken: address(0),
-                paidAmount: 0,
-                status: IDerampStorage.Status.PENDING,
-                createdAt: block.timestamp,
-                expiresAt: expiresAtArray[i],
-                paidAt: 0,
-                refundedAt: 0,
-                expiredAt: 0
-            });
-
-            storageContract.setInvoice(ids[i], invoice);
-
-            // Add all payment options
-            for (uint256 j = 0; j < paymentOptionsArray[i].length; j++) {
-                storageContract.addPaymentOption(
-                    ids[i],
-                    paymentOptionsArray[i][j]
-                );
-            }
-
-            // Track invoice for commerce
-            storageContract.addCommerceInvoice(commerces[i], ids[i]);
-
-            emit IDerampStorage.InvoiceCreated(ids[i], commerces[i]);
-        }
-    }
-
     // === INVOICE MANAGEMENT ===
 
     function cancelInvoice(bytes32 id) external {
@@ -180,7 +105,7 @@ contract InvoiceManager is Pausable, IInvoiceManager {
         );
         require(
             msg.sender == inv.commerce ||
-                accessManager.hasRole(DEFAULT_ADMIN_ROLE, msg.sender),
+                accessManager.hasRole(0x00, msg.sender),
             "Not authorized to cancel invoice"
         );
 
@@ -201,7 +126,7 @@ contract InvoiceManager is Pausable, IInvoiceManager {
         );
         require(
             msg.sender == inv.commerce ||
-                accessManager.hasRole(DEFAULT_ADMIN_ROLE, msg.sender),
+                accessManager.hasRole(0x00, msg.sender),
             "Not authorized to expire invoice"
         );
 
@@ -433,7 +358,44 @@ contract InvoiceManager is Pausable, IInvoiceManager {
     function getCommerceTokens(
         address commerce
     ) external view returns (address[] memory) {
-        return storageContract.getCommerceTokens(commerce);
+        bytes32[] memory allInvoices = storageContract.getCommerceInvoices(
+            commerce
+        );
+        address[] memory tempTokens = new address[](allInvoices.length);
+        uint256 uniqueCount = 0;
+
+        for (uint256 i = 0; i < allInvoices.length; i++) {
+            IDerampStorage.Invoice memory inv = storageContract.getInvoice(
+                allInvoices[i]
+            );
+            if (
+                inv.status == IDerampStorage.Status.PAID &&
+                inv.paidToken != address(0)
+            ) {
+                // Check if token is already in the array
+                bool exists = false;
+                for (uint256 j = 0; j < uniqueCount; j++) {
+                    if (tempTokens[j] == inv.paidToken) {
+                        exists = true;
+                        break;
+                    }
+                }
+
+                // Add token if it's not already in the array
+                if (!exists) {
+                    tempTokens[uniqueCount] = inv.paidToken;
+                    uniqueCount++;
+                }
+            }
+        }
+
+        // Create result array with exact size
+        address[] memory result = new address[](uniqueCount);
+        for (uint256 i = 0; i < uniqueCount; i++) {
+            result[i] = tempTokens[i];
+        }
+
+        return result;
     }
 
     /// @notice Get commerce total revenue by token (only paid invoices)
@@ -445,7 +407,27 @@ contract InvoiceManager is Pausable, IInvoiceManager {
         address commerce,
         address token
     ) external view returns (uint256 totalRevenue, uint256 netRevenue) {
-        return storageContract.getCommerceRevenue(commerce, token);
+        bytes32[] memory allInvoices = storageContract.getCommerceInvoices(
+            commerce
+        );
+        uint256 feePercent = storageContract.commerceFees(commerce);
+        if (feePercent == 0) {
+            feePercent = storageContract.defaultFeePercent();
+        }
+
+        for (uint256 i = 0; i < allInvoices.length; i++) {
+            IDerampStorage.Invoice memory inv = storageContract.getInvoice(
+                allInvoices[i]
+            );
+            if (
+                inv.status == IDerampStorage.Status.PAID &&
+                inv.paidToken == token
+            ) {
+                totalRevenue += inv.paidAmount;
+                uint256 feeAmount = (inv.paidAmount * feePercent) / 10000;
+                netRevenue += (inv.paidAmount - feeAmount);
+            }
+        }
     }
 
     /// @notice Get commerce revenue for all tokens (only paid invoices)
@@ -464,7 +446,16 @@ contract InvoiceManager is Pausable, IInvoiceManager {
             uint256[] memory netRevenues
         )
     {
-        return storageContract.getCommerceAllRevenues(commerce);
+        tokens = this.getCommerceTokens(commerce);
+        totalRevenues = new uint256[](tokens.length);
+        netRevenues = new uint256[](tokens.length);
+
+        for (uint256 i = 0; i < tokens.length; i++) {
+            (totalRevenues[i], netRevenues[i]) = this.getCommerceRevenue(
+                commerce,
+                tokens[i]
+            );
+        }
     }
 
     // === ADMIN FUNCTIONS ===

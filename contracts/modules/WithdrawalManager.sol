@@ -14,8 +14,6 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
     DerampStorage public immutable storageContract;
     IAccessManager public immutable accessManager;
 
-    bytes32 public constant DEFAULT_ADMIN_ROLE = 0x00;
-
     modifier onlyCommerce() {
         require(
             accessManager.isCommerceWhitelisted(msg.sender),
@@ -25,10 +23,7 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
     }
 
     modifier onlyOwner() {
-        require(
-            accessManager.hasRole(DEFAULT_ADMIN_ROLE, msg.sender),
-            "Not owner"
-        );
+        require(accessManager.hasRole(0x00, msg.sender), "Not owner");
         _;
     }
 
@@ -152,15 +147,50 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
         emit IDerampStorage.CommerceWithdrawal(msg.sender, token, amount);
     }
 
+    function withdrawCommerceBalance(
+        address token,
+        uint256 amount,
+        address to
+    ) external onlyCommerce whenNotPaused {
+        require(amount > 0, "Amount must be greater than 0");
+        require(to != address(0), "Invalid recipient");
+        require(
+            storageContract.balances(msg.sender, token) >= amount,
+            "Insufficient balance"
+        );
+
+        // Update balance
+        storageContract.subtractCommerceBalance(msg.sender, token, amount);
+
+        // Transfer tokens
+        IERC20(token).safeTransfer(to, amount);
+
+        // Create withdrawal record
+        IDerampStorage.WithdrawalRecord memory record = IDerampStorage
+            .WithdrawalRecord({
+                token: token,
+                amount: amount,
+                to: to,
+                initiatedBy: msg.sender,
+                withdrawalType: IDerampStorage.WithdrawalType.COMMERCE,
+                createdAt: block.timestamp,
+                invoiceId: bytes32(0)
+            });
+
+        storageContract.addWithdrawalRecord(record);
+
+        emit IDerampStorage.CommerceWithdrawal(msg.sender, token, amount);
+    }
+
     function withdrawAllCommerceBalance(
         address token
     ) external onlyCommerce whenNotPaused {
-        uint256 balance = storageContract.getCommerceBalance(msg.sender, token);
+        uint256 balance = storageContract.balances(msg.sender, token);
         require(balance > 0, "No balance to withdraw");
 
         // Inline withdrawCommerceBalance logic
         require(
-            storageContract.getCommerceBalance(msg.sender, token) >= balance,
+            storageContract.balances(msg.sender, token) >= balance,
             "Insufficient balance"
         );
 
@@ -197,8 +227,7 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
             // Inline withdrawCommerceBalance logic
             require(amounts[i] > 0, "Amount must be greater than 0");
             require(
-                storageContract.getCommerceBalance(msg.sender, tokens[i]) >=
-                    amounts[i],
+                storageContract.balances(msg.sender, tokens[i]) >= amounts[i],
                 "Insufficient balance"
             );
 
@@ -238,15 +267,11 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
         address[] calldata tokens
     ) external onlyCommerce whenNotPaused {
         for (uint256 i = 0; i < tokens.length; i++) {
-            uint256 balance = storageContract.getCommerceBalance(
-                msg.sender,
-                tokens[i]
-            );
+            uint256 balance = storageContract.balances(msg.sender, tokens[i]);
             if (balance > 0) {
                 // Inline withdrawCommerceBalance logic
                 require(
-                    storageContract.getCommerceBalance(msg.sender, tokens[i]) >=
-                        balance,
+                    storageContract.balances(msg.sender, tokens[i]) >= balance,
                     "Insufficient balance"
                 );
 
@@ -294,7 +319,7 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
         require(amount > 0, "Amount must be greater than 0");
         require(to != address(0), "Invalid recipient");
         require(
-            storageContract.getCommerceBalance(commerce, token) >= amount,
+            storageContract.balances(commerce, token) >= amount,
             "Insufficient balance"
         );
 
@@ -649,18 +674,9 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
     ) external view returns (uint256[] memory) {
         uint256[] memory balances = new uint256[](tokens.length);
         for (uint256 i = 0; i < tokens.length; i++) {
-            balances[i] = storageContract.getCommerceBalance(
-                commerce,
-                tokens[i]
-            );
+            balances[i] = storageContract.balances(commerce, tokens[i]);
         }
         return balances;
-    }
-
-    function getAllCommerceTokens(
-        address commerce
-    ) external view returns (address[] memory) {
-        return storageContract.getCommerceTokens(commerce);
     }
 
     // === ADMIN FUNCTIONS ===

@@ -5,6 +5,8 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "../interfaces/IDerampStorage.sol";
 
 contract DerampStorage is Ownable, IDerampStorage {
+    // === STATE VARIABLES ===
+
     // Core mappings
     mapping(bytes32 => Invoice) public invoices;
     mapping(bytes32 => PaymentOption[]) public invoicePaymentOptions;
@@ -24,6 +26,9 @@ contract DerampStorage is Ownable, IDerampStorage {
     mapping(address => TreasuryWallet) public treasuryWallets;
     address[] public treasuryWalletsList;
 
+    // Token tracking
+    address[] public whitelistedTokensList;
+
     // Withdrawal tracking
     WithdrawalRecord[] public withdrawalHistory;
     mapping(address => uint256[]) public commerceWithdrawals;
@@ -36,7 +41,8 @@ contract DerampStorage is Ownable, IDerampStorage {
 
     constructor() Ownable(msg.sender) {}
 
-    // Module management
+    // === MODULE MANAGEMENT ===
+
     function setModule(
         string calldata name,
         address moduleAddress
@@ -56,7 +62,66 @@ contract DerampStorage is Ownable, IDerampStorage {
         _;
     }
 
-    // Storage functions - only callable by authorized modules
+    // === TOKEN WHITELIST MANAGEMENT ===
+
+    function setWhitelistedToken(
+        address token,
+        bool whitelisted
+    ) external onlyAuthorizedModule {
+        bool wasWhitelisted = whitelistedTokens[token];
+        whitelistedTokens[token] = whitelisted;
+
+        if (whitelisted && !wasWhitelisted) {
+            // Agregar a la lista
+            whitelistedTokensList.push(token);
+        } else if (!whitelisted && wasWhitelisted) {
+            // Remover de la lista
+            _removeTokenFromList(token);
+        }
+    }
+
+    function _removeTokenFromList(address token) internal {
+        for (uint256 i = 0; i < whitelistedTokensList.length; i++) {
+            if (whitelistedTokensList[i] == token) {
+                whitelistedTokensList[i] = whitelistedTokensList[
+                    whitelistedTokensList.length - 1
+                ];
+                whitelistedTokensList.pop();
+                break;
+            }
+        }
+    }
+
+    function getWhitelistedTokens() external view returns (address[] memory) {
+        return whitelistedTokensList;
+    }
+
+    // === COMMERCE WHITELIST MANAGEMENT ===
+
+    function setWhitelistedCommerce(
+        address commerce,
+        bool whitelisted
+    ) external onlyAuthorizedModule {
+        whitelistedCommerces[commerce] = whitelisted;
+    }
+
+    // === FEE MANAGEMENT ===
+
+    function setDefaultFeePercent(
+        uint256 feePercent
+    ) external onlyAuthorizedModule {
+        defaultFeePercent = feePercent;
+    }
+
+    function setCommerceFee(
+        address commerce,
+        uint256 feePercent
+    ) external onlyAuthorizedModule {
+        commerceFees[commerce] = feePercent;
+    }
+
+    // === INVOICE MANAGEMENT ===
+
     function setInvoice(
         bytes32 id,
         Invoice calldata invoice
@@ -76,6 +141,31 @@ contract DerampStorage is Ownable, IDerampStorage {
     ) external onlyAuthorizedModule {
         delete invoicePaymentOptions[invoiceId];
     }
+
+    function addCommerceInvoice(
+        address commerce,
+        bytes32 invoiceId
+    ) external onlyAuthorizedModule {
+        commerceInvoices[commerce].push(invoiceId);
+    }
+
+    function getInvoice(bytes32 id) external view returns (Invoice memory) {
+        return invoices[id];
+    }
+
+    function getInvoicePaymentOptions(
+        bytes32 id
+    ) external view returns (PaymentOption[] memory) {
+        return invoicePaymentOptions[id];
+    }
+
+    function getCommerceInvoices(
+        address commerce
+    ) external view returns (bytes32[] memory) {
+        return commerceInvoices[commerce];
+    }
+
+    // === BALANCE MANAGEMENT ===
 
     function setBalance(
         address commerce,
@@ -102,6 +192,27 @@ contract DerampStorage is Ownable, IDerampStorage {
         balances[commerce][token] -= amount;
     }
 
+    function subtractCommerceBalance(
+        address commerce,
+        address token,
+        uint256 amount
+    ) external onlyAuthorizedModule {
+        require(
+            balances[commerce][token] >= amount,
+            "Insufficient commerce balance"
+        );
+        balances[commerce][token] -= amount;
+    }
+
+    function getCommerceBalance(
+        address commerce,
+        address token
+    ) external view returns (uint256) {
+        return balances[commerce][token];
+    }
+
+    // === SERVICE FEE MANAGEMENT ===
+
     function setServiceFeeBalance(
         address token,
         uint256 amount
@@ -127,39 +238,31 @@ contract DerampStorage is Ownable, IDerampStorage {
         serviceFeeBalances[token] -= amount;
     }
 
-    function setWhitelistedToken(
+    function subtractServiceFeeBalance(
         address token,
-        bool whitelisted
+        uint256 amount
     ) external onlyAuthorizedModule {
-        whitelistedTokens[token] = whitelisted;
+        require(
+            serviceFeeBalances[token] >= amount,
+            "Insufficient service fee balance"
+        );
+        serviceFeeBalances[token] -= amount;
     }
 
-    function setWhitelistedCommerce(
-        address commerce,
-        bool whitelisted
-    ) external onlyAuthorizedModule {
-        whitelistedCommerces[commerce] = whitelisted;
+    function getServiceFeeBalance(
+        address token
+    ) external view returns (uint256) {
+        return serviceFeeBalances[token];
     }
 
-    function setDefaultFeePercent(
-        uint256 feePercent
-    ) external onlyAuthorizedModule {
-        defaultFeePercent = feePercent;
+    function getServiceFeeTokens() external view returns (address[] memory) {
+        // Return tokens that have service fee balances > 0
+        // This is a simplified implementation - in production you might want to track this more efficiently
+        address[] memory allTokens = new address[](0); // Placeholder
+        return allTokens;
     }
 
-    function setCommerceFee(
-        address commerce,
-        uint256 feePercent
-    ) external onlyAuthorizedModule {
-        commerceFees[commerce] = feePercent;
-    }
-
-    function addCommerceInvoice(
-        address commerce,
-        bytes32 invoiceId
-    ) external onlyAuthorizedModule {
-        commerceInvoices[commerce].push(invoiceId);
-    }
+    // === TREASURY MANAGEMENT ===
 
     function setTreasuryWallet(
         address wallet,
@@ -188,6 +291,32 @@ contract DerampStorage is Ownable, IDerampStorage {
         }
     }
 
+    function setTreasuryWalletStatus(
+        address wallet,
+        bool isActive
+    ) external onlyAuthorizedModule {
+        treasuryWallets[wallet].isActive = isActive;
+    }
+
+    function updateTreasuryWallet(
+        address wallet,
+        TreasuryWallet calldata updatedWallet
+    ) external onlyAuthorizedModule {
+        treasuryWallets[wallet] = updatedWallet;
+    }
+
+    function getTreasuryWallet(
+        address wallet
+    ) external view returns (TreasuryWallet memory) {
+        return treasuryWallets[wallet];
+    }
+
+    function getTreasuryWalletsList() external view returns (address[] memory) {
+        return treasuryWalletsList;
+    }
+
+    // === WITHDRAWAL MANAGEMENT ===
+
     function addWithdrawalRecord(
         WithdrawalRecord calldata record
     ) external onlyAuthorizedModule returns (uint256) {
@@ -214,200 +343,6 @@ contract DerampStorage is Ownable, IDerampStorage {
         uint256 index
     ) external onlyAuthorizedModule {
         serviceFeeWithdrawals.push(index);
-    }
-
-    function setTreasuryWalletStatus(
-        address wallet,
-        bool isActive
-    ) external onlyAuthorizedModule {
-        treasuryWallets[wallet].isActive = isActive;
-    }
-
-    function updateTreasuryWallet(
-        address wallet,
-        TreasuryWallet calldata updatedWallet
-    ) external onlyAuthorizedModule {
-        treasuryWallets[wallet] = updatedWallet;
-    }
-
-    function getTreasuryWallet(
-        address wallet
-    ) external view returns (TreasuryWallet memory) {
-        return treasuryWallets[wallet];
-    }
-
-    function getServiceFeeBalance(
-        address token
-    ) external view returns (uint256) {
-        return serviceFeeBalances[token];
-    }
-
-    function getTreasuryWallets()
-        external
-        view
-        returns (TreasuryWallet[] memory)
-    {
-        TreasuryWallet[] memory wallets = new TreasuryWallet[](
-            treasuryWalletsList.length
-        );
-        for (uint256 i = 0; i < treasuryWalletsList.length; i++) {
-            wallets[i] = treasuryWallets[treasuryWalletsList[i]];
-        }
-        return wallets;
-    }
-
-    function getServiceFeeTokens() external view returns (address[] memory) {
-        // Return tokens that have service fee balances > 0
-        // This is a simplified implementation - in production you might want to track this more efficiently
-        address[] memory allTokens = new address[](0); // Placeholder
-        return allTokens;
-    }
-
-    function subtractServiceFeeBalance(
-        address token,
-        uint256 amount
-    ) external onlyAuthorizedModule {
-        require(
-            serviceFeeBalances[token] >= amount,
-            "Insufficient service fee balance"
-        );
-        serviceFeeBalances[token] -= amount;
-    }
-
-    function subtractCommerceBalance(
-        address commerce,
-        address token,
-        uint256 amount
-    ) external onlyAuthorizedModule {
-        require(
-            balances[commerce][token] >= amount,
-            "Insufficient commerce balance"
-        );
-        balances[commerce][token] -= amount;
-    }
-
-    function getCommerceBalance(
-        address commerce,
-        address token
-    ) external view returns (uint256) {
-        return balances[commerce][token];
-    }
-
-    // View functions
-    function getInvoice(bytes32 id) external view returns (Invoice memory) {
-        return invoices[id];
-    }
-
-    function getInvoicePaymentOptions(
-        bytes32 id
-    ) external view returns (PaymentOption[] memory) {
-        return invoicePaymentOptions[id];
-    }
-
-    function getCommerceInvoices(
-        address commerce
-    ) external view returns (bytes32[] memory) {
-        return commerceInvoices[commerce];
-    }
-
-    // === ANALYTICS FUNCTIONS ===
-
-    /// @notice Get unique tokens used in paid invoices for a commerce
-    /// @param commerce The commerce address
-    /// @return Array of unique token addresses used in paid invoices
-    function getCommerceTokens(
-        address commerce
-    ) external view returns (address[] memory) {
-        bytes32[] memory allInvoices = commerceInvoices[commerce];
-        address[] memory tempTokens = new address[](allInvoices.length);
-        uint256 uniqueCount = 0;
-
-        for (uint256 i = 0; i < allInvoices.length; i++) {
-            Invoice memory inv = invoices[allInvoices[i]];
-            if (inv.status == Status.PAID && inv.paidToken != address(0)) {
-                // Check if token is already in the array
-                bool exists = false;
-                for (uint256 j = 0; j < uniqueCount; j++) {
-                    if (tempTokens[j] == inv.paidToken) {
-                        exists = true;
-                        break;
-                    }
-                }
-
-                // Add token if it's not already in the array
-                if (!exists) {
-                    tempTokens[uniqueCount] = inv.paidToken;
-                    uniqueCount++;
-                }
-            }
-        }
-
-        // Create result array with exact size
-        address[] memory result = new address[](uniqueCount);
-        for (uint256 i = 0; i < uniqueCount; i++) {
-            result[i] = tempTokens[i];
-        }
-
-        return result;
-    }
-
-    /// @notice Get commerce total revenue by token (only paid invoices)
-    /// @param commerce The commerce address
-    /// @param token The token address
-    /// @return totalRevenue Total amount collected from paid invoices (before fees)
-    /// @return netRevenue Net amount (after service fees)
-    function getCommerceRevenue(
-        address commerce,
-        address token
-    ) external view returns (uint256 totalRevenue, uint256 netRevenue) {
-        bytes32[] memory allInvoices = commerceInvoices[commerce];
-        uint256 feePercent = commerceFees[commerce];
-        if (feePercent == 0) {
-            feePercent = defaultFeePercent;
-        }
-
-        for (uint256 i = 0; i < allInvoices.length; i++) {
-            Invoice memory inv = invoices[allInvoices[i]];
-            if (inv.status == Status.PAID && inv.paidToken == token) {
-                totalRevenue += inv.paidAmount;
-                uint256 feeAmount = (inv.paidAmount * feePercent) / 10000;
-                netRevenue += (inv.paidAmount - feeAmount);
-            }
-        }
-    }
-
-    /// @notice Get commerce revenue for all tokens (only paid invoices)
-    /// @param commerce The commerce address
-    /// @return tokens Array of token addresses
-    /// @return totalRevenues Array of total revenues per token (before fees)
-    /// @return netRevenues Array of net revenues per token (after fees)
-    function getCommerceAllRevenues(
-        address commerce
-    )
-        external
-        view
-        returns (
-            address[] memory tokens,
-            uint256[] memory totalRevenues,
-            uint256[] memory netRevenues
-        )
-    {
-        tokens = this.getCommerceTokens(commerce);
-        totalRevenues = new uint256[](tokens.length);
-        netRevenues = new uint256[](tokens.length);
-
-        for (uint256 i = 0; i < tokens.length; i++) {
-            (totalRevenues[i], netRevenues[i]) = this.getCommerceRevenue(
-                commerce,
-                tokens[i]
-            );
-        }
-    }
-
-    // === EXISTING VIEW FUNCTIONS ===
-
-    function getTreasuryWalletsList() external view returns (address[] memory) {
-        return treasuryWalletsList;
     }
 
     function getWithdrawalHistory()

@@ -14,13 +14,8 @@ contract PaymentProcessor is Pausable, IPaymentProcessor {
     DerampStorage public immutable storageContract;
     IAccessManager public immutable accessManager;
 
-    bytes32 public constant DEFAULT_ADMIN_ROLE = 0x00;
-
     modifier onlyOwner() {
-        require(
-            accessManager.hasRole(DEFAULT_ADMIN_ROLE, msg.sender),
-            "Not owner"
-        );
+        require(accessManager.hasRole(0x00, msg.sender), "Not owner");
         _;
     }
 
@@ -232,21 +227,84 @@ contract PaymentProcessor is Pausable, IPaymentProcessor {
         return balances;
     }
 
-    // === COMMERCE ANALYTICS ===
+    // === ANALYTICS FUNCTIONS (Compatibility) ===
+    // Note: These functions are provided for test compatibility
+    // In production, use InvoiceManager through the proxy for analytics
 
+    /// @notice Get unique tokens used in paid invoices for a commerce
+    /// @param commerce The commerce address
+    /// @return Array of unique token addresses used in paid invoices
     function getCommerceTokens(
         address commerce
     ) external view returns (address[] memory) {
-        return storageContract.getCommerceTokens(commerce);
+        bytes32[] memory allInvoices = storageContract.getCommerceInvoices(
+            commerce
+        );
+        address[] memory tempTokens = new address[](allInvoices.length);
+        uint256 uniqueCount = 0;
+
+        for (uint256 i = 0; i < allInvoices.length; i++) {
+            IDerampStorage.Invoice memory inv = storageContract.getInvoice(
+                allInvoices[i]
+            );
+            if (
+                inv.status == IDerampStorage.Status.PAID &&
+                inv.paidToken != address(0)
+            ) {
+                bool isUnique = true;
+                for (uint256 j = 0; j < uniqueCount; j++) {
+                    if (tempTokens[j] == inv.paidToken) {
+                        isUnique = false;
+                        break;
+                    }
+                }
+                if (isUnique) {
+                    tempTokens[uniqueCount] = inv.paidToken;
+                    uniqueCount++;
+                }
+            }
+        }
+
+        address[] memory result = new address[](uniqueCount);
+        for (uint256 i = 0; i < uniqueCount; i++) {
+            result[i] = tempTokens[i];
+        }
+        return result;
     }
 
+    /// @notice Get revenue statistics for a commerce and specific token
+    /// @param commerce The commerce address
+    /// @param token The token address
+    /// @return totalRevenue Total revenue including fees
+    /// @return netRevenue Net revenue after fees
     function getCommerceRevenue(
         address commerce,
         address token
     ) external view returns (uint256 totalRevenue, uint256 netRevenue) {
-        return storageContract.getCommerceRevenue(commerce, token);
+        bytes32[] memory allInvoices = storageContract.getCommerceInvoices(
+            commerce
+        );
+
+        for (uint256 i = 0; i < allInvoices.length; i++) {
+            IDerampStorage.Invoice memory inv = storageContract.getInvoice(
+                allInvoices[i]
+            );
+            if (
+                inv.status == IDerampStorage.Status.PAID &&
+                inv.paidToken == token
+            ) {
+                totalRevenue += inv.paidAmount;
+                uint256 serviceFee = calculateServiceFee(token, inv.paidAmount);
+                netRevenue += (inv.paidAmount - serviceFee);
+            }
+        }
     }
 
+    /// @notice Get all revenue statistics for a commerce across all tokens
+    /// @param commerce The commerce address
+    /// @return tokens Array of token addresses
+    /// @return totalRevenues Array of total revenues per token
+    /// @return netRevenues Array of net revenues per token
     function getCommerceAllRevenues(
         address commerce
     )
@@ -258,7 +316,17 @@ contract PaymentProcessor is Pausable, IPaymentProcessor {
             uint256[] memory netRevenues
         )
     {
-        return storageContract.getCommerceAllRevenues(commerce);
+        address[] memory allTokens = this.getCommerceTokens(commerce);
+        tokens = allTokens;
+        totalRevenues = new uint256[](allTokens.length);
+        netRevenues = new uint256[](allTokens.length);
+
+        for (uint256 i = 0; i < allTokens.length; i++) {
+            (totalRevenues[i], netRevenues[i]) = this.getCommerceRevenue(
+                commerce,
+                allTokens[i]
+            );
+        }
     }
 
     // === EMERGENCY FUNCTIONS ===

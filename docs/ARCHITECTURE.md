@@ -235,7 +235,7 @@ classDiagram
         +createInvoice(bytes32, address, PaymentOption[], uint256)
         +payInvoice(bytes32, address, uint256)
         +withdrawBalance(address, uint256)
-        +withdrawServiceFees(address, address)
+
         -_delegateToAccessManager(bytes)
         -_delegateToInvoiceManager(bytes)
         -_delegateToPaymentProcessor(bytes)

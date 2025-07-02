@@ -140,25 +140,4 @@ interface IDerampStorage {
         external
         view
         returns (uint256[] memory);
-
-    // Analytics functions
-    function getCommerceTokens(
-        address commerce
-    ) external view returns (address[] memory);
-
-    function getCommerceRevenue(
-        address commerce,
-        address token
-    ) external view returns (uint256 totalRevenue, uint256 netRevenue);
-
-    function getCommerceAllRevenues(
-        address commerce
-    )
-        external
-        view
-        returns (
-            address[] memory tokens,
-            uint256[] memory totalRevenues,
-            uint256[] memory netRevenues
-        );
 }

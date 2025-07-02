@@ -112,6 +112,19 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         return IAccessManager(accessManager).hasRole(role, account);
     }
 
+    // Role constants getters
+    function getOnboardingRole() external view returns (bytes32) {
+        return IAccessManager(accessManager).getOnboardingRole();
+    }
+
+    function getTokenManagerRole() external view returns (bytes32) {
+        return IAccessManager(accessManager).getTokenManagerRole();
+    }
+
+    function getTreasuryManagerRole() external view returns (bytes32) {
+        return IAccessManager(accessManager).getTreasuryManagerRole();
+    }
+
     // Token whitelist
     function addTokenToWhitelist(address token) external whenNotPaused {
         _delegateToAccessManager(
@@ -125,19 +138,12 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         );
     }
 
-    function addMultipleTokensToWhitelist(
-        address[] calldata tokens
-    ) external whenNotPaused {
-        _delegateToAccessManager(
-            abi.encodeWithSignature(
-                "addMultipleTokensToWhitelist(address[])",
-                tokens
-            )
-        );
-    }
-
     function isTokenWhitelisted(address token) external view returns (bool) {
         return IAccessManager(accessManager).isTokenWhitelisted(token);
+    }
+
+    function getWhitelistedTokens() external view returns (address[] memory) {
+        return IAccessManager(accessManager).getWhitelistedTokens();
     }
 
     // Commerce whitelist
@@ -186,6 +192,10 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
 
     function getCommerceFee(address commerce) external view returns (uint256) {
         return IAccessManager(accessManager).getCommerceFee(commerce);
+    }
+
+    function getDefaultFeePercent() external view returns (uint256) {
+        return IAccessManager(accessManager).getDefaultFeePercent();
     }
 
     // === INVOICE MANAGER FUNCTIONS ===
@@ -421,7 +431,10 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
     function supportsInterface(
         bytes4 interfaceId
     ) external pure returns (bool) {
-        return interfaceId == 0x01ffc9a7; // ERC165 interface ID
+        return
+            interfaceId == 0x01ffc9a7 || // ERC165
+            interfaceId == 0x7f5828d0 || // Ownable (ERC173)
+            interfaceId == 0x5c975abb; // Pausable
     }
 
     // === INTERNAL DELEGATION FUNCTIONS ===

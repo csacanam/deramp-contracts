@@ -24,26 +24,12 @@ interface IAccessManager {
 
     function removeTokenFromWhitelist(address token) external;
 
-    function addMultipleTokensToWhitelist(address[] calldata tokens) external;
-
-    function removeMultipleTokensFromWhitelist(
-        address[] calldata tokens
-    ) external;
-
     function isTokenWhitelisted(address token) external view returns (bool);
 
     // Commerce whitelist
     function addCommerceToWhitelist(address commerce) external;
 
     function removeCommerceFromWhitelist(address commerce) external;
-
-    function addMultipleCommercesToWhitelist(
-        address[] calldata commerces
-    ) external;
-
-    function removeMultipleCommercesFromWhitelist(
-        address[] calldata commerces
-    ) external;
 
     function isCommerceWhitelisted(
         address commerce
@@ -54,12 +40,9 @@ interface IAccessManager {
 
     function setCommerceFee(address commerce, uint256 feePercent) external;
 
-    function setMultipleCommerceFees(
-        address[] calldata commerces,
-        uint256[] calldata feePercents
-    ) external;
-
     function getCommerceFee(address commerce) external view returns (uint256);
 
     function getDefaultFeePercent() external view returns (uint256);
+
+    function getWhitelistedTokens() external view returns (address[] memory);
 }

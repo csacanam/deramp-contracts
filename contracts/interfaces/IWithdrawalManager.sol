@@ -9,6 +9,12 @@ interface IWithdrawalManager {
 
     function withdrawAll(address[] calldata tokens) external;
 
+    function withdrawCommerceBalance(
+        address token,
+        uint256 amount,
+        address to
+    ) external;
+
     // Withdrawal tracking queries
     function getWithdrawalCount() external view returns (uint256);
 

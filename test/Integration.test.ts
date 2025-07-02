@@ -234,8 +234,8 @@ describe("Deramp System Integration", function () {
       expect(commerce2Balance).to.be.gt(0);
 
       // Verify analytics
-      const commerce1Tokens = await paymentProcessor.getCommerceTokens(roles.commerce1.address);
-      const commerce2Tokens = await paymentProcessor.getCommerceTokens(roles.commerce2.address);
+      const commerce1Tokens = await proxy.getCommerceTokens(roles.commerce1.address);
+      const commerce2Tokens = await proxy.getCommerceTokens(roles.commerce2.address);
       
       expect(commerce1Tokens).to.include(await testToken.getAddress());
       expect(commerce2Tokens).to.include(await testToken.getAddress());
@@ -271,7 +271,7 @@ describe("Deramp System Integration", function () {
       }
 
       // Verify multi-token analytics
-      const allRevenues = await paymentProcessor.getCommerceAllRevenues(roles.commerce1.address);
+      const allRevenues = await proxy.getCommerceAllRevenues(roles.commerce1.address);
       expect(allRevenues.tokens.length).to.equal(2);
       expect(allRevenues.tokens).to.include(await testToken.getAddress());
       expect(allRevenues.tokens).to.include(await testToken2.getAddress());
@@ -565,18 +565,18 @@ describe("Deramp System Integration", function () {
 
     it("Should provide comprehensive commerce analytics", async function () {
       // Commerce 1 analytics
-      const commerce1Tokens = await paymentProcessor.getCommerceTokens(roles.commerce1.address);
+      const commerce1Tokens = await proxy.getCommerceTokens(roles.commerce1.address);
       expect(commerce1Tokens.length).to.equal(2);
 
-      const commerce1AllRevenues = await paymentProcessor.getCommerceAllRevenues(roles.commerce1.address);
+      const commerce1AllRevenues = await proxy.getCommerceAllRevenues(roles.commerce1.address);
       expect(commerce1AllRevenues.tokens.length).to.equal(2);
       expect(commerce1AllRevenues.totalRevenues.length).to.equal(2);
 
       // Commerce 2 analytics
-      const commerce2Tokens = await paymentProcessor.getCommerceTokens(roles.commerce2.address);
+      const commerce2Tokens = await proxy.getCommerceTokens(roles.commerce2.address);
       expect(commerce2Tokens.length).to.equal(2);
 
-      const commerce2AllRevenues = await paymentProcessor.getCommerceAllRevenues(roles.commerce2.address);
+      const commerce2AllRevenues = await proxy.getCommerceAllRevenues(roles.commerce2.address);
       expect(commerce2AllRevenues.tokens.length).to.equal(2);
     });
 
