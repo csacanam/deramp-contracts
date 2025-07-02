@@ -110,7 +110,53 @@ interface IDerampStorage {
         WithdrawalType withdrawalType
     );
 
-    // View functions
+    // === MAPPINGS ACCESS ===
+    function whitelistedTokens(address token) external view returns (bool);
+
+    function whitelistedCommerces(
+        address commerce
+    ) external view returns (bool);
+
+    function balances(
+        address commerce,
+        address token
+    ) external view returns (uint256);
+
+    function serviceFeeBalances(address token) external view returns (uint256);
+
+    function commerceFees(address commerce) external view returns (uint256);
+
+    function defaultFeePercent() external view returns (uint256);
+
+    // === TOKEN WHITELIST MANAGEMENT ===
+    function setWhitelistedToken(address token, bool whitelisted) external;
+
+    function getWhitelistedTokens() external view returns (address[] memory);
+
+    // === COMMERCE WHITELIST MANAGEMENT ===
+    function setWhitelistedCommerce(
+        address commerce,
+        bool whitelisted
+    ) external;
+
+    // === FEE MANAGEMENT ===
+    function setDefaultFeePercent(uint256 feePercent) external;
+
+    function setCommerceFee(address commerce, uint256 feePercent) external;
+
+    // === INVOICE MANAGEMENT ===
+    function setInvoice(bytes32 id, Invoice calldata invoice) external;
+
+    function addPaymentOption(
+        bytes32 invoiceId,
+        PaymentOption calldata option
+    ) external;
+
+    function clearPaymentOptions(bytes32 invoiceId) external;
+
+    function addCommerceInvoice(address commerce, bytes32 invoiceId) external;
+
+    // === INVOICE QUERIES ===
     function getInvoice(bytes32 id) external view returns (Invoice memory);
 
     function getInvoicePaymentOptions(
@@ -121,7 +167,87 @@ interface IDerampStorage {
         address commerce
     ) external view returns (bytes32[] memory);
 
+    // === BALANCE MANAGEMENT ===
+    function setBalance(
+        address commerce,
+        address token,
+        uint256 amount
+    ) external;
+
+    function addToBalance(
+        address commerce,
+        address token,
+        uint256 amount
+    ) external;
+
+    function subtractFromBalance(
+        address commerce,
+        address token,
+        uint256 amount
+    ) external;
+
+    function subtractCommerceBalance(
+        address commerce,
+        address token,
+        uint256 amount
+    ) external;
+
+    function getCommerceBalance(
+        address commerce,
+        address token
+    ) external view returns (uint256);
+
+    // === SERVICE FEE MANAGEMENT ===
+    function setServiceFeeBalance(address token, uint256 amount) external;
+
+    function addToServiceFeeBalance(address token, uint256 amount) external;
+
+    function subtractFromServiceFeeBalance(
+        address token,
+        uint256 amount
+    ) external;
+
+    function subtractServiceFeeBalance(address token, uint256 amount) external;
+
+    function getServiceFeeBalance(
+        address token
+    ) external view returns (uint256);
+
+    function getServiceFeeTokens() external view returns (address[] memory);
+
+    // === TREASURY MANAGEMENT ===
+    function setTreasuryWallet(
+        address wallet,
+        TreasuryWallet calldata treasuryWallet
+    ) external;
+
+    function addTreasuryWalletToList(address wallet) external;
+
+    function removeTreasuryWalletFromList(address wallet) external;
+
+    function setTreasuryWalletStatus(address wallet, bool isActive) external;
+
+    function updateTreasuryWallet(
+        address wallet,
+        TreasuryWallet calldata updatedWallet
+    ) external;
+
+    function getTreasuryWallet(
+        address wallet
+    ) external view returns (TreasuryWallet memory);
+
     function getTreasuryWalletsList() external view returns (address[] memory);
+
+    // === WITHDRAWAL MANAGEMENT ===
+    function addWithdrawalRecord(
+        WithdrawalRecord calldata record
+    ) external returns (uint256);
+
+    function addCommerceWithdrawal(address commerce, uint256 index) external;
+
+    function addTreasuryWithdrawal(address treasury, uint256 index) external;
+
+    function addServiceFeeWithdrawal(uint256 index) external;
 
     function getWithdrawalHistory()
         external

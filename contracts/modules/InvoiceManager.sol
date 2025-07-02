@@ -4,10 +4,10 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "../interfaces/IInvoiceManager.sol";
 import "../interfaces/IAccessManager.sol";
-import "../storage/DerampStorage.sol";
+import "../interfaces/IDerampStorage.sol";
 
 contract InvoiceManager is Pausable, IInvoiceManager {
-    DerampStorage public immutable storageContract;
+    IDerampStorage public immutable storageContract;
     IAccessManager public immutable accessManager;
 
     modifier onlyOwner() {
@@ -25,7 +25,7 @@ contract InvoiceManager is Pausable, IInvoiceManager {
     }
 
     constructor(address _storage, address _accessManager) {
-        storageContract = DerampStorage(_storage);
+        storageContract = IDerampStorage(_storage);
         accessManager = IAccessManager(_accessManager);
     }
 

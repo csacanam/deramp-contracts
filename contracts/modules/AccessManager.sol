@@ -3,10 +3,10 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "../interfaces/IAccessManager.sol";
-import "../storage/DerampStorage.sol";
+import "../interfaces/IDerampStorage.sol";
 
 contract AccessManager is AccessControl, IAccessManager {
-    DerampStorage public immutable storageContract;
+    IDerampStorage public immutable storageContract;
 
     bytes32 public constant ONBOARDING_ROLE = keccak256("ONBOARDING_ROLE");
     bytes32 public constant TOKEN_MANAGER_ROLE =
@@ -20,7 +20,7 @@ contract AccessManager is AccessControl, IAccessManager {
     }
 
     constructor(address _storage) {
-        storageContract = DerampStorage(_storage);
+        storageContract = IDerampStorage(_storage);
 
         // Grant all roles to deployer initially
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);

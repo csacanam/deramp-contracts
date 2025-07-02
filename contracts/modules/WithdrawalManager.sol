@@ -6,12 +6,12 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "../interfaces/IWithdrawalManager.sol";
 import "../interfaces/IAccessManager.sol";
-import "../storage/DerampStorage.sol";
+import "../interfaces/IDerampStorage.sol";
 
 contract WithdrawalManager is Pausable, IWithdrawalManager {
     using SafeERC20 for IERC20;
 
-    DerampStorage public immutable storageContract;
+    IDerampStorage public immutable storageContract;
     IAccessManager public immutable accessManager;
 
     modifier onlyCommerce() {
@@ -28,7 +28,7 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
     }
 
     constructor(address _storage, address _accessManager) {
-        storageContract = DerampStorage(_storage);
+        storageContract = IDerampStorage(_storage);
         accessManager = IAccessManager(_accessManager);
     }
 
