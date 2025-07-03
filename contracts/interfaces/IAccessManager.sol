@@ -52,4 +52,20 @@ interface IAccessManager {
     function getCommerceFee(address commerce) external view returns (uint256);
 
     function getDefaultFeePercent() external view returns (uint256);
+
+    // === PER-COMMERCE TOKEN WHITELIST MANAGEMENT ===
+    function addTokenToCommerceWhitelist(
+        address commerce,
+        address[] calldata tokens
+    ) external;
+
+    function removeTokenFromCommerceWhitelist(
+        address commerce,
+        address[] calldata tokens
+    ) external;
+
+    function isTokenWhitelistedForCommerce(
+        address commerce,
+        address token
+    ) external view returns (bool);
 }

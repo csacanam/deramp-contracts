@@ -9,6 +9,7 @@ import "../interfaces/IDerampStorage.sol";
 contract InvoiceManager is Pausable, IInvoiceManager {
     IDerampStorage public immutable storageContract;
     IAccessManager public immutable accessManager;
+    address public immutable proxy;
 
     modifier onlyOwner() {
         require(
@@ -30,9 +31,15 @@ contract InvoiceManager is Pausable, IInvoiceManager {
         _;
     }
 
-    constructor(address _storage, address _accessManager) {
+    modifier onlyProxy() {
+        require(msg.sender == proxy, "Only proxy can call");
+        _;
+    }
+
+    constructor(address _storage, address _accessManager, address _proxy) {
         storageContract = IDerampStorage(_storage);
         accessManager = IAccessManager(_accessManager);
+        proxy = _proxy;
     }
 
     // === INVOICE CREATION ===
@@ -42,7 +49,7 @@ contract InvoiceManager is Pausable, IInvoiceManager {
         address commerce,
         IDerampStorage.PaymentOption[] calldata paymentOptions,
         uint256 expiresAt
-    ) external whenNotPaused {
+    ) external onlyProxy {
         require(
             storageContract.getInvoice(id).id == bytes32(0),
             "Invoice already exists"
@@ -51,18 +58,6 @@ contract InvoiceManager is Pausable, IInvoiceManager {
         require(
             accessManager.isCommerceWhitelisted(commerce),
             "Commerce not whitelisted"
-        );
-        require(
-            msg.sender == commerce ||
-                accessManager.hasRole(
-                    accessManager.getDefaultAdminRole(),
-                    msg.sender
-                ) ||
-                accessManager.hasRole(
-                    accessManager.getBackendOperatorRole(),
-                    msg.sender
-                ),
-            "Not authorized to create invoice for this commerce"
         );
         require(
             paymentOptions.length > 0,
@@ -74,6 +69,13 @@ contract InvoiceManager is Pausable, IInvoiceManager {
             require(
                 accessManager.isTokenWhitelisted(paymentOptions[i].token),
                 "Token not whitelisted"
+            );
+            require(
+                storageContract.isTokenWhitelistedForCommerce(
+                    commerce,
+                    paymentOptions[i].token
+                ),
+                "Token not whitelisted for this commerce"
             );
             require(
                 paymentOptions[i].amount > 0,
@@ -92,7 +94,8 @@ contract InvoiceManager is Pausable, IInvoiceManager {
             expiresAt: expiresAt,
             paidAt: 0,
             refundedAt: 0,
-            expiredAt: 0
+            expiredAt: 0,
+            serviceFee: 0
         });
 
         storageContract.setInvoice(id, invoice);
@@ -110,24 +113,12 @@ contract InvoiceManager is Pausable, IInvoiceManager {
 
     // === INVOICE MANAGEMENT ===
 
-    function cancelInvoice(bytes32 id) external {
+    function cancelInvoice(bytes32 id) external onlyProxy {
         IDerampStorage.Invoice memory inv = storageContract.getInvoice(id);
         require(inv.id != bytes32(0), "Invoice not found");
         require(
             inv.status == IDerampStorage.Status.PENDING,
             "Only pending invoices can be cancelled"
-        );
-        require(
-            msg.sender == inv.commerce ||
-                accessManager.hasRole(
-                    accessManager.getDefaultAdminRole(),
-                    msg.sender
-                ) ||
-                accessManager.hasRole(
-                    accessManager.getBackendOperatorRole(),
-                    msg.sender
-                ),
-            "Not authorized to cancel invoice"
         );
 
         IDerampStorage.Invoice memory updatedInvoice = inv;
@@ -424,8 +415,7 @@ contract InvoiceManager is Pausable, IInvoiceManager {
                 inv.paidToken == token
             ) {
                 totalRevenue += inv.paidAmount;
-                uint256 feeAmount = (inv.paidAmount * feePercent) / 10000;
-                netRevenue += (inv.paidAmount - feeAmount);
+                netRevenue += (inv.paidAmount - inv.serviceFee);
             }
         }
     }
@@ -456,15 +446,5 @@ contract InvoiceManager is Pausable, IInvoiceManager {
                 tokens[i]
             );
         }
-    }
-
-    // === ADMIN FUNCTIONS ===
-
-    function pause() external onlyOwner {
-        _pause();
-    }
-
-    function unpause() external onlyOwner {
-        _unpause();
     }
 }

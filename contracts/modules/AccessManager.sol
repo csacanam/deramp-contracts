@@ -7,6 +7,7 @@ import "../interfaces/IDerampStorage.sol";
 
 contract AccessManager is AccessControl, IAccessManager {
     IDerampStorage public immutable storageContract;
+    address public immutable proxy;
 
     // === ROLE DEFINITIONS ===
     // DEFAULT_ADMIN_ROLE (0x00) - Supreme admin role (deployer initially)
@@ -36,8 +37,14 @@ contract AccessManager is AccessControl, IAccessManager {
         _;
     }
 
-    constructor(address _storage) {
+    modifier onlyProxy() {
+        require(msg.sender == proxy, "Only proxy can call");
+        _;
+    }
+
+    constructor(address _storage, address _proxy) {
         storageContract = IDerampStorage(_storage);
+        proxy = _proxy;
 
         // Set up role hierarchy - DEFAULT_ADMIN_ROLE is admin of all roles
         _setRoleAdmin(ONBOARDING_ROLE, DEFAULT_ADMIN_ROLE);
@@ -59,22 +66,14 @@ contract AccessManager is AccessControl, IAccessManager {
     function grantRole(
         bytes32 role,
         address account
-    )
-        public
-        override(AccessControl, IAccessManager)
-        onlyRole(getRoleAdmin(role))
-    {
+    ) public override(AccessControl, IAccessManager) onlyProxy {
         super.grantRole(role, account);
     }
 
     function revokeRole(
         bytes32 role,
         address account
-    )
-        public
-        override(AccessControl, IAccessManager)
-        onlyRole(getRoleAdmin(role))
-    {
+    ) public override(AccessControl, IAccessManager) onlyProxy {
         super.revokeRole(role, account);
     }
 
@@ -199,4 +198,38 @@ contract AccessManager is AccessControl, IAccessManager {
     event DefaultFeePercentUpdated(uint256 feePercent);
     event CommerceFeeUpdated(address indexed commerce, uint256 feePercent);
     event EmergencyAction(string action, address indexed executor);
+
+    // === PER-COMMERCE TOKEN WHITELIST MANAGEMENT ===
+    function addTokenToCommerceWhitelist(
+        address commerce,
+        address[] calldata tokens
+    ) external onlyProxy {
+        for (uint256 i = 0; i < tokens.length; i++) {
+            storageContract.setCommerceTokenWhitelisted(
+                commerce,
+                tokens[i],
+                true
+            );
+        }
+    }
+
+    function removeTokenFromCommerceWhitelist(
+        address commerce,
+        address[] calldata tokens
+    ) external onlyProxy {
+        for (uint256 i = 0; i < tokens.length; i++) {
+            storageContract.setCommerceTokenWhitelisted(
+                commerce,
+                tokens[i],
+                false
+            );
+        }
+    }
+
+    function isTokenWhitelistedForCommerce(
+        address commerce,
+        address token
+    ) external view returns (bool) {
+        return storageContract.isTokenWhitelistedForCommerce(commerce, token);
+    }
 }

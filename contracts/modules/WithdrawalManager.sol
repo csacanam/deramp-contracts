@@ -13,34 +13,22 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
 
     IDerampStorage public immutable storageContract;
     IAccessManager public immutable accessManager;
+    address public immutable proxy;
 
-    modifier onlyCommerce() {
-        require(
-            accessManager.isCommerceWhitelisted(msg.sender),
-            "Not whitelisted commerce"
-        );
+    modifier onlyProxy() {
+        require(msg.sender == proxy, "Only proxy can call");
         _;
     }
 
-    modifier onlyOwner() {
-        require(
-            accessManager.hasRole(
-                accessManager.getDefaultAdminRole(),
-                msg.sender
-            ),
-            "Not owner"
-        );
-        _;
-    }
-
-    constructor(address _storage, address _accessManager) {
+    constructor(address _storage, address _accessManager, address _proxy) {
         storageContract = IDerampStorage(_storage);
         accessManager = IAccessManager(_accessManager);
+        proxy = _proxy;
     }
 
     // === COMMERCE WITHDRAWALS ===
 
-    function withdraw(address token) external onlyCommerce whenNotPaused {
+    function withdraw(address token) external onlyProxy {
         uint256 amount = storageContract.balances(msg.sender, token);
         require(amount > 0, "No funds");
 
@@ -68,9 +56,7 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
         emit IDerampStorage.Withdrawn(msg.sender, token, amount);
     }
 
-    function withdrawAll(
-        address[] calldata tokens
-    ) external onlyCommerce whenNotPaused {
+    function withdrawAll(address[] calldata tokens) external onlyProxy {
         require(tokens.length > 0, "No tokens provided");
         uint256 totalWithdrawn = 0;
 
@@ -114,7 +100,7 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
         bytes32 invoiceId,
         address token,
         uint256 amount
-    ) external onlyCommerce whenNotPaused {
+    ) external onlyProxy {
         require(amount > 0, "Amount must be greater than 0");
         require(
             storageContract.balances(msg.sender, token) >= amount,
@@ -157,7 +143,7 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
         address token,
         uint256 amount,
         address to
-    ) external onlyCommerce whenNotPaused {
+    ) external onlyProxy {
         require(amount > 0, "Amount must be greater than 0");
         require(to != address(0), "Invalid recipient");
         require(
@@ -188,9 +174,7 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
         emit IDerampStorage.CommerceWithdrawal(msg.sender, token, amount);
     }
 
-    function withdrawAllCommerceBalance(
-        address token
-    ) external onlyCommerce whenNotPaused {
+    function withdrawAllCommerceBalance(address token) external onlyProxy {
         uint256 balance = storageContract.balances(msg.sender, token);
         require(balance > 0, "No balance to withdraw");
 
@@ -226,7 +210,7 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
     function withdrawMultipleCommerceBalances(
         address[] calldata tokens,
         uint256[] calldata amounts
-    ) external onlyCommerce whenNotPaused {
+    ) external onlyProxy {
         require(tokens.length == amounts.length, "Array length mismatch");
 
         for (uint256 i = 0; i < tokens.length; i++) {
@@ -271,7 +255,7 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
 
     function withdrawAllCommerceBalances(
         address[] calldata tokens
-    ) external onlyCommerce whenNotPaused {
+    ) external onlyProxy {
         for (uint256 i = 0; i < tokens.length; i++) {
             uint256 balance = storageContract.balances(msg.sender, tokens[i]);
             if (balance > 0) {
@@ -321,7 +305,7 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
         address token,
         uint256 amount,
         address to
-    ) external onlyOwner whenNotPaused {
+    ) external onlyProxy {
         require(amount > 0, "Amount must be greater than 0");
         require(to != address(0), "Invalid recipient");
         require(
@@ -430,7 +414,7 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
         address to,
         IDerampStorage.WithdrawalType withdrawalType,
         bytes32 invoiceId
-    ) external onlyOwner {
+    ) external onlyProxy {
         IDerampStorage.WithdrawalRecord memory record = IDerampStorage
             .WithdrawalRecord({
                 token: token,
@@ -687,11 +671,11 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
 
     // === ADMIN FUNCTIONS ===
 
-    function pause() external onlyOwner {
+    function pause() external onlyProxy {
         _pause();
     }
 
-    function unpause() external onlyOwner {
+    function unpause() external onlyProxy {
         _unpause();
     }
 }

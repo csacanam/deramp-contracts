@@ -13,32 +13,20 @@ contract TreasuryManager is Pausable, ITreasuryManager {
 
     IDerampStorage public immutable storageContract;
     IAccessManager public immutable accessManager;
+    address public immutable proxy;
 
     bytes32 public constant TREASURY_MANAGER_ROLE =
         keccak256("TREASURY_MANAGER_ROLE");
 
-    modifier onlyOwner() {
-        require(
-            accessManager.hasRole(
-                accessManager.getDefaultAdminRole(),
-                msg.sender
-            ),
-            "Not owner"
-        );
+    modifier onlyProxy() {
+        require(msg.sender == proxy, "Only proxy can call");
         _;
     }
 
-    modifier onlyTreasuryManager() {
-        require(
-            accessManager.hasRole(TREASURY_MANAGER_ROLE, msg.sender),
-            "Not treasury manager"
-        );
-        _;
-    }
-
-    constructor(address _storage, address _accessManager) {
+    constructor(address _storage, address _accessManager, address _proxy) {
         storageContract = IDerampStorage(_storage);
         accessManager = IAccessManager(_accessManager);
+        proxy = _proxy;
     }
 
     // === TREASURY WALLET MANAGEMENT ===
@@ -46,7 +34,7 @@ contract TreasuryManager is Pausable, ITreasuryManager {
     function addTreasuryWallet(
         address wallet,
         string calldata description
-    ) external onlyTreasuryManager {
+    ) external onlyProxy {
         require(wallet != address(0), "Invalid wallet address");
 
         IDerampStorage.TreasuryWallet memory treasuryWallet = IDerampStorage
@@ -63,7 +51,7 @@ contract TreasuryManager is Pausable, ITreasuryManager {
         emit IDerampStorage.TreasuryWalletAdded(wallet, description);
     }
 
-    function removeTreasuryWallet(address wallet) external onlyTreasuryManager {
+    function removeTreasuryWallet(address wallet) external onlyProxy {
         storageContract.removeTreasuryWalletFromList(wallet);
         emit IDerampStorage.TreasuryWalletRemoved(wallet);
     }
@@ -71,7 +59,7 @@ contract TreasuryManager is Pausable, ITreasuryManager {
     function setTreasuryWalletStatus(
         address wallet,
         bool isActive
-    ) external onlyTreasuryManager {
+    ) external onlyProxy {
         storageContract.setTreasuryWalletStatus(wallet, isActive);
         emit IDerampStorage.TreasuryWalletStatusChanged(wallet, isActive);
     }
@@ -81,7 +69,7 @@ contract TreasuryManager is Pausable, ITreasuryManager {
     function withdrawServiceFeesToTreasury(
         address token,
         address to
-    ) external onlyTreasuryManager whenNotPaused {
+    ) external onlyProxy {
         uint256 amount = storageContract.getServiceFeeBalance(token);
         require(amount > 0, "No service fees to withdraw");
 
@@ -94,7 +82,7 @@ contract TreasuryManager is Pausable, ITreasuryManager {
     function withdrawAllServiceFeesToTreasury(
         address[] calldata tokens,
         address to
-    ) external onlyTreasuryManager whenNotPaused {
+    ) external onlyProxy {
         require(tokens.length > 0, "No tokens provided");
         uint256 totalWithdrawn = 0;
 
@@ -111,9 +99,7 @@ contract TreasuryManager is Pausable, ITreasuryManager {
         require(totalWithdrawn > 0, "No service fees to withdraw");
     }
 
-    function withdrawAllServiceFeesToTreasury(
-        address to
-    ) external onlyTreasuryManager whenNotPaused {
+    function withdrawAllServiceFeesToTreasury(address to) external onlyProxy {
         require(to != address(0), "Invalid treasury address");
         require(
             storageContract.getTreasuryWallet(to).isActive,
@@ -345,11 +331,11 @@ contract TreasuryManager is Pausable, ITreasuryManager {
 
     // === ADMIN FUNCTIONS ===
 
-    function pause() external onlyOwner {
+    function pause() external onlyProxy {
         _pause();
     }
 
-    function unpause() external onlyOwner {
+    function unpause() external onlyProxy {
         _unpause();
     }
 }

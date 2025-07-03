@@ -39,6 +39,9 @@ contract DerampStorage is Ownable, IDerampStorage {
     mapping(string => address) public modules;
     mapping(address => bool) public authorizedModules;
 
+    // Per-commerce token whitelist
+    mapping(address => mapping(address => bool)) public commerceTokenWhitelist;
+
     constructor() Ownable(msg.sender) {}
 
     // === MODULE MANAGEMENT ===
@@ -371,5 +374,22 @@ contract DerampStorage is Ownable, IDerampStorage {
         returns (uint256[] memory)
     {
         return serviceFeeWithdrawals;
+    }
+
+    // === PER-COMMERCE TOKEN WHITELIST MANAGEMENT ===
+
+    function setCommerceTokenWhitelisted(
+        address commerce,
+        address token,
+        bool whitelisted
+    ) external onlyAuthorizedModule {
+        commerceTokenWhitelist[commerce][token] = whitelisted;
+    }
+
+    function isTokenWhitelistedForCommerce(
+        address commerce,
+        address token
+    ) external view returns (bool) {
+        return commerceTokenWhitelist[commerce][token];
     }
 }

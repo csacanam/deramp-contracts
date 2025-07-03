@@ -31,6 +31,7 @@ interface IDerampStorage {
         uint256 paidAt;
         uint256 refundedAt;
         uint256 expiredAt;
+        uint256 serviceFee;
     }
 
     struct WithdrawalRecord {
@@ -266,4 +267,16 @@ interface IDerampStorage {
         external
         view
         returns (uint256[] memory);
+
+    // === PER-COMMERCE TOKEN WHITELIST MANAGEMENT ===
+    function setCommerceTokenWhitelisted(
+        address commerce,
+        address token,
+        bool whitelisted
+    ) external;
+
+    function isTokenWhitelistedForCommerce(
+        address commerce,
+        address token
+    ) external view returns (bool);
 }

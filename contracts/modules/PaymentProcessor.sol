@@ -13,21 +13,17 @@ contract PaymentProcessor is Pausable, IPaymentProcessor {
 
     IDerampStorage public immutable storageContract;
     IAccessManager public immutable accessManager;
+    address public immutable proxy;
 
-    modifier onlyOwner() {
-        require(
-            accessManager.hasRole(
-                accessManager.getDefaultAdminRole(),
-                msg.sender
-            ),
-            "Not owner"
-        );
+    modifier onlyProxy() {
+        require(msg.sender == proxy, "Only proxy can call");
         _;
     }
 
-    constructor(address _storage, address _accessManager) {
+    constructor(address _storage, address _accessManager, address _proxy) {
         storageContract = IDerampStorage(_storage);
         accessManager = IAccessManager(_accessManager);
+        proxy = _proxy;
     }
 
     // === PAYMENT PROCESSING ===
@@ -36,7 +32,7 @@ contract PaymentProcessor is Pausable, IPaymentProcessor {
         bytes32 invoiceId,
         address token,
         uint256 amount
-    ) external payable whenNotPaused {
+    ) external payable onlyProxy {
         IDerampStorage.Invoice memory invoice = storageContract.getInvoice(
             invoiceId
         );
@@ -45,7 +41,10 @@ contract PaymentProcessor is Pausable, IPaymentProcessor {
             invoice.status == IDerampStorage.Status.PENDING,
             "Invoice is not pending"
         );
-        require(block.timestamp <= invoice.expiresAt, "Invoice has expired");
+        require(
+            invoice.expiresAt == 0 || block.timestamp <= invoice.expiresAt,
+            "Invoice has expired"
+        );
 
         // Validate payment option
         IDerampStorage.PaymentOption[] memory paymentOptions = storageContract
@@ -62,13 +61,24 @@ contract PaymentProcessor is Pausable, IPaymentProcessor {
         }
 
         require(validPaymentOption, "Invalid payment option");
-        require(amount >= expectedAmount, "Insufficient payment amount");
+        require(
+            accessManager.isTokenWhitelisted(token),
+            "Token not globally whitelisted"
+        );
+        require(
+            storageContract.isTokenWhitelistedForCommerce(
+                invoice.commerce,
+                token
+            ),
+            "Token not whitelisted for this commerce"
+        );
+        require(amount == expectedAmount, "Incorrect payment amount");
 
         // Transfer tokens from payer to contract
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
 
         // Calculate fees
-        uint256 serviceFee = calculateServiceFee(token, amount);
+        uint256 serviceFee = calculateServiceFee(invoice.commerce, amount);
         uint256 commerceAmount = amount - serviceFee;
 
         // Update invoice
@@ -78,6 +88,7 @@ contract PaymentProcessor is Pausable, IPaymentProcessor {
         updatedInvoice.paidAmount = amount;
         updatedInvoice.status = IDerampStorage.Status.PAID;
         updatedInvoice.paidAt = block.timestamp;
+        updatedInvoice.serviceFee = serviceFee;
 
         storageContract.setInvoice(invoiceId, updatedInvoice);
 
@@ -91,36 +102,19 @@ contract PaymentProcessor is Pausable, IPaymentProcessor {
     }
 
     function calculateServiceFee(
-        address token,
+        address commerce,
         uint256 amount
-    ) public view returns (uint256) {
-        uint256 feePercentage = storageContract.defaultFeePercent();
-        return (amount * feePercentage) / 10000; // Basis points
-    }
-
-    function updateInvoicePayment(
-        bytes32 invoiceId,
-        address payer,
-        address token,
-        uint256 amount
-    ) external onlyOwner {
-        IDerampStorage.Invoice memory invoice = storageContract.getInvoice(
-            invoiceId
-        );
-        require(invoice.id != bytes32(0), "Invoice not found");
-
-        invoice.payer = payer;
-        invoice.paidToken = token;
-        invoice.paidAmount = amount;
-        invoice.status = IDerampStorage.Status.PAID;
-        invoice.paidAt = block.timestamp;
-
-        storageContract.setInvoice(invoiceId, invoice);
+    ) internal view returns (uint256) {
+        uint256 feePercent = storageContract.commerceFees(commerce);
+        if (feePercent == 0) {
+            feePercent = storageContract.defaultFeePercent();
+        }
+        return (amount * feePercent) / 10000;
     }
 
     // === REFUND PROCESSING ===
 
-    function refundInvoice(bytes32 invoiceId) external onlyOwner whenNotPaused {
+    function refundInvoice(bytes32 invoiceId) external onlyProxy {
         IDerampStorage.Invoice memory invoice = storageContract.getInvoice(
             invoiceId
         );
@@ -132,7 +126,7 @@ contract PaymentProcessor is Pausable, IPaymentProcessor {
 
         // Calculate refund amounts
         uint256 serviceFee = calculateServiceFee(
-            invoice.paidToken,
+            invoice.commerce,
             invoice.paidAmount
         );
         uint256 commerceAmount = invoice.paidAmount - serviceFee;
@@ -204,14 +198,14 @@ contract PaymentProcessor is Pausable, IPaymentProcessor {
         address commerce,
         address token,
         uint256 amount
-    ) external onlyOwner {
+    ) external onlyProxy {
         storageContract.subtractFromBalance(commerce, token, amount);
     }
 
     function deductServiceFeeBalance(
         address token,
         uint256 amount
-    ) external onlyOwner {
+    ) external onlyProxy {
         storageContract.subtractFromServiceFeeBalance(token, amount);
     }
 
@@ -300,8 +294,7 @@ contract PaymentProcessor is Pausable, IPaymentProcessor {
                 inv.paidToken == token
             ) {
                 totalRevenue += inv.paidAmount;
-                uint256 serviceFee = calculateServiceFee(token, inv.paidAmount);
-                netRevenue += (inv.paidAmount - serviceFee);
+                netRevenue += (inv.paidAmount - inv.serviceFee);
             }
         }
     }
@@ -337,11 +330,11 @@ contract PaymentProcessor is Pausable, IPaymentProcessor {
 
     // === EMERGENCY FUNCTIONS ===
 
-    function pause() external onlyOwner {
+    function pause() external onlyProxy {
         _pause();
     }
 
-    function unpause() external onlyOwner {
+    function unpause() external onlyProxy {
         _unpause();
     }
 }

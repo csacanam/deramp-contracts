@@ -32,19 +32,6 @@ interface IPaymentProcessor {
         address[] calldata tokens
     ) external view returns (uint256[] memory amounts);
 
-    // Internal functions exposed for other modules
-    function updateInvoicePayment(
-        bytes32 invoiceId,
-        address payer,
-        address token,
-        uint256 amount
-    ) external;
-
-    function calculateServiceFee(
-        address commerce,
-        uint256 amount
-    ) external view returns (uint256 feeAmount);
-
     // Balance management (for withdrawals)
     function deductCommerceBalance(
         address commerce,

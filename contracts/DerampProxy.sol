@@ -87,15 +87,73 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         _unpause();
     }
 
-    // === ACCESS MANAGER FUNCTIONS ===
+    // === ROLE MODIFIERS (ADMIN OR SPECIFIC) ===
+    modifier onlyTokenManagerOrAdmin() {
+        IAccessManager am = IAccessManager(accessManager);
+        require(
+            am.hasRole(am.getDefaultAdminRole(), msg.sender) ||
+                am.hasRole(am.getTokenManagerRole(), msg.sender),
+            "Not authorized"
+        );
+        _;
+    }
+    modifier onlyOnboardingOrAdmin() {
+        IAccessManager am = IAccessManager(accessManager);
+        require(
+            am.hasRole(am.getDefaultAdminRole(), msg.sender) ||
+                am.hasRole(am.getOnboardingRole(), msg.sender),
+            "Not authorized"
+        );
+        _;
+    }
+    modifier onlyTreasuryManagerOrAdmin() {
+        IAccessManager am = IAccessManager(accessManager);
+        require(
+            am.hasRole(am.getDefaultAdminRole(), msg.sender) ||
+                am.hasRole(am.getTreasuryManagerRole(), msg.sender),
+            "Not authorized"
+        );
+        _;
+    }
+    modifier onlyBackendOperatorOrAdmin() {
+        IAccessManager am = IAccessManager(accessManager);
+        require(
+            am.hasRole(am.getDefaultAdminRole(), msg.sender) ||
+                am.hasRole(am.getBackendOperatorRole(), msg.sender),
+            "Not authorized"
+        );
+        _;
+    }
+    modifier onlyAdmin() {
+        require(
+            IAccessManager(accessManager).hasRole(
+                IAccessManager(accessManager).getDefaultAdminRole(),
+                msg.sender
+            ),
+            "Not admin"
+        );
+        _;
+    }
 
-    function grantRole(bytes32 role, address account) external {
+    modifier onlyCommerceOrAdminOrBackend(address commerce) {
+        IAccessManager am = IAccessManager(accessManager);
+        require(
+            msg.sender == commerce ||
+                am.hasRole(am.getDefaultAdminRole(), msg.sender) ||
+                am.hasRole(am.getBackendOperatorRole(), msg.sender),
+            "Not authorized"
+        );
+        _;
+    }
+
+    // === ACCESS MANAGER FUNCTIONS ===
+    function grantRole(bytes32 role, address account) external onlyAdmin {
         _delegateToAccessManager(
             abi.encodeWithSignature("grantRole(bytes32,address)", role, account)
         );
     }
 
-    function revokeRole(bytes32 role, address account) external {
+    function revokeRole(bytes32 role, address account) external onlyAdmin {
         _delegateToAccessManager(
             abi.encodeWithSignature(
                 "revokeRole(bytes32,address)",
@@ -105,49 +163,27 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         );
     }
 
-    function hasRole(
-        bytes32 role,
-        address account
-    ) external view returns (bool) {
-        return IAccessManager(accessManager).hasRole(role, account);
-    }
-
-    // Role constants getters
-    function getOnboardingRole() external view returns (bytes32) {
-        return IAccessManager(accessManager).getOnboardingRole();
-    }
-
-    function getTokenManagerRole() external view returns (bytes32) {
-        return IAccessManager(accessManager).getTokenManagerRole();
-    }
-
-    function getTreasuryManagerRole() external view returns (bytes32) {
-        return IAccessManager(accessManager).getTreasuryManagerRole();
-    }
-
     // Token whitelist
-    function addTokenToWhitelist(address token) external whenNotPaused {
+    function addTokenToWhitelist(
+        address token
+    ) external onlyTokenManagerOrAdmin whenNotPaused {
         _delegateToAccessManager(
             abi.encodeWithSignature("addTokenToWhitelist(address)", token)
         );
     }
 
-    function removeTokenFromWhitelist(address token) external whenNotPaused {
+    function removeTokenFromWhitelist(
+        address token
+    ) external onlyTokenManagerOrAdmin whenNotPaused {
         _delegateToAccessManager(
             abi.encodeWithSignature("removeTokenFromWhitelist(address)", token)
         );
     }
 
-    function isTokenWhitelisted(address token) external view returns (bool) {
-        return IAccessManager(accessManager).isTokenWhitelisted(token);
-    }
-
-    function getWhitelistedTokens() external view returns (address[] memory) {
-        return IAccessManager(accessManager).getWhitelistedTokens();
-    }
-
     // Commerce whitelist
-    function addCommerceToWhitelist(address commerce) external whenNotPaused {
+    function addCommerceToWhitelist(
+        address commerce
+    ) external onlyOnboardingOrAdmin whenNotPaused {
         _delegateToAccessManager(
             abi.encodeWithSignature("addCommerceToWhitelist(address)", commerce)
         );
@@ -155,7 +191,7 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
 
     function removeCommerceFromWhitelist(
         address commerce
-    ) external whenNotPaused {
+    ) external onlyOnboardingOrAdmin whenNotPaused {
         _delegateToAccessManager(
             abi.encodeWithSignature(
                 "removeCommerceFromWhitelist(address)",
@@ -164,14 +200,10 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         );
     }
 
-    function isCommerceWhitelisted(
-        address commerce
-    ) external view returns (bool) {
-        return IAccessManager(accessManager).isCommerceWhitelisted(commerce);
-    }
-
     // Fee management
-    function setDefaultFeePercent(uint256 feePercent) external whenNotPaused {
+    function setDefaultFeePercent(
+        uint256 feePercent
+    ) external onlyOnboardingOrAdmin whenNotPaused {
         _delegateToAccessManager(
             abi.encodeWithSignature("setDefaultFeePercent(uint256)", feePercent)
         );
@@ -180,7 +212,7 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
     function setCommerceFee(
         address commerce,
         uint256 feePercent
-    ) external whenNotPaused {
+    ) external onlyOnboardingOrAdmin whenNotPaused {
         _delegateToAccessManager(
             abi.encodeWithSignature(
                 "setCommerceFee(address,uint256)",
@@ -190,13 +222,80 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         );
     }
 
-    function getCommerceFee(address commerce) external view returns (uint256) {
-        return IAccessManager(accessManager).getCommerceFee(commerce);
+    // Treasury management
+    function addTreasuryWallet(
+        address wallet,
+        string calldata description
+    ) external onlyTreasuryManagerOrAdmin whenNotPaused {
+        _delegateToTreasuryManager(
+            abi.encodeWithSignature(
+                "addTreasuryWallet(address,string)",
+                wallet,
+                description
+            )
+        );
     }
 
-    function getDefaultFeePercent() external view returns (uint256) {
-        return IAccessManager(accessManager).getDefaultFeePercent();
+    function removeTreasuryWallet(
+        address wallet
+    ) external onlyTreasuryManagerOrAdmin whenNotPaused {
+        _delegateToTreasuryManager(
+            abi.encodeWithSignature("removeTreasuryWallet(address)", wallet)
+        );
     }
+
+    function setTreasuryWalletStatus(
+        address wallet,
+        bool isActive
+    ) external onlyTreasuryManagerOrAdmin whenNotPaused {
+        _delegateToTreasuryManager(
+            abi.encodeWithSignature(
+                "setTreasuryWalletStatus(address,bool)",
+                wallet,
+                isActive
+            )
+        );
+    }
+
+    function withdrawServiceFeesToTreasury(
+        address token,
+        address to
+    ) external onlyTreasuryManagerOrAdmin whenNotPaused {
+        _delegateToTreasuryManager(
+            abi.encodeWithSignature(
+                "withdrawServiceFeesToTreasury(address,address)",
+                token,
+                to
+            )
+        );
+    }
+
+    function withdrawServiceFeesToTreasury(
+        address[] calldata tokens,
+        address to
+    ) external onlyTreasuryManagerOrAdmin whenNotPaused {
+        _delegateToTreasuryManager(
+            abi.encodeWithSignature(
+                "withdrawServiceFeesToTreasury(address[],address)",
+                tokens,
+                to
+            )
+        );
+    }
+
+    function withdrawAllServiceFeesToTreasury(
+        address to
+    ) external onlyTreasuryManagerOrAdmin whenNotPaused {
+        _delegateToTreasuryManager(
+            abi.encodeWithSignature(
+                "withdrawAllServiceFeesToTreasury(address)",
+                to
+            )
+        );
+    }
+
+    // Backend operator (ejemplo)
+    // function someBackendFunction(...) external onlyBackendOperatorOrAdmin whenNotPaused { ... }
 
     // === INVOICE MANAGER FUNCTIONS ===
 
@@ -205,7 +304,7 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         address commerce,
         IDerampStorage.PaymentOption[] calldata paymentOptions,
         uint256 expiresAt
-    ) external whenNotPaused {
+    ) external onlyCommerceOrAdminOrBackend(commerce) whenNotPaused {
         _delegateToInvoiceManager(
             abi.encodeWithSignature(
                 "createInvoice(bytes32,address,(address,uint256)[],uint256)",
@@ -218,6 +317,10 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
     }
 
     function cancelInvoice(bytes32 id) external whenNotPaused {
+        address commerce = IDerampStorage(storageContract)
+            .getInvoice(id)
+            .commerce;
+        _onlyCommerceOrAdminOrBackend(commerce);
         _delegateToInvoiceManager(
             abi.encodeWithSignature("cancelInvoice(bytes32)", id)
         );
@@ -324,6 +427,45 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         return IInvoiceManager(invoiceManager).getCommerceStats(commerce);
     }
 
+    function invoiceExists(bytes32 id) external view returns (bool) {
+        return IInvoiceManager(invoiceManager).invoiceExists(id);
+    }
+
+    function isInvoiceCommerce(
+        bytes32 id,
+        address commerce
+    ) external view returns (bool) {
+        return IInvoiceManager(invoiceManager).isInvoiceCommerce(id, commerce);
+    }
+
+    function getCommerceTokens(
+        address commerce
+    ) external view returns (address[] memory) {
+        return IInvoiceManager(invoiceManager).getCommerceTokens(commerce);
+    }
+
+    function getCommerceRevenue(
+        address commerce,
+        address token
+    ) external view returns (uint256 totalRevenue, uint256 netRevenue) {
+        return
+            IInvoiceManager(invoiceManager).getCommerceRevenue(commerce, token);
+    }
+
+    function getCommerceAllRevenues(
+        address commerce
+    )
+        external
+        view
+        returns (
+            address[] memory tokens,
+            uint256[] memory totalRevenues,
+            uint256[] memory netRevenues
+        )
+    {
+        return IInvoiceManager(invoiceManager).getCommerceAllRevenues(commerce);
+    }
+
     // === PAYMENT PROCESSOR FUNCTIONS ===
 
     function payInvoice(
@@ -362,7 +504,17 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
 
     // === WITHDRAWAL MANAGER FUNCTIONS ===
 
-    function withdraw(address token) external whenNotPaused nonReentrant {
+    // Modifier: Only the commerce can call
+    modifier onlyCommerce(address commerce) {
+        require(msg.sender == commerce, "Only the commerce can call");
+        _;
+    }
+
+    // --- WITHDRAWALS ---
+
+    function withdraw(
+        address token
+    ) external whenNotPaused nonReentrant onlyCommerce(msg.sender) {
         _delegateToWithdrawalManager(
             abi.encodeWithSignature("withdraw(address)", token)
         );
@@ -370,10 +522,119 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
 
     function withdrawAll(
         address[] calldata tokens
-    ) external whenNotPaused nonReentrant {
+    ) external whenNotPaused nonReentrant onlyCommerce(msg.sender) {
         _delegateToWithdrawalManager(
             abi.encodeWithSignature("withdrawAll(address[])", tokens)
         );
+    }
+
+    function withdrawCommerceBalance(
+        address token,
+        uint256 amount,
+        address to
+    ) external whenNotPaused nonReentrant onlyCommerce(msg.sender) {
+        _delegateToWithdrawalManager(
+            abi.encodeWithSignature(
+                "withdrawCommerceBalance(address,uint256,address)",
+                token,
+                amount,
+                to
+            )
+        );
+    }
+
+    function withdrawCommerceBalanceForInvoice(
+        bytes32 invoiceId,
+        address token,
+        uint256 amount
+    ) external whenNotPaused nonReentrant {
+        address commerce = IDerampStorage(storageContract)
+            .getInvoice(invoiceId)
+            .commerce;
+        require(
+            msg.sender == commerce,
+            "Only the commerce can withdraw for this invoice"
+        );
+        _delegateToWithdrawalManager(
+            abi.encodeWithSignature(
+                "withdrawCommerceBalanceForInvoice(bytes32,address,uint256)",
+                invoiceId,
+                token,
+                amount
+            )
+        );
+    }
+
+    function withdrawAllCommerceBalance(
+        address token
+    ) external whenNotPaused nonReentrant onlyCommerce(msg.sender) {
+        _delegateToWithdrawalManager(
+            abi.encodeWithSignature(
+                "withdrawAllCommerceBalance(address)",
+                token
+            )
+        );
+    }
+
+    function withdrawMultipleCommerceBalances(
+        address[] calldata tokens,
+        uint256[] calldata amounts
+    ) external whenNotPaused nonReentrant onlyCommerce(msg.sender) {
+        _delegateToWithdrawalManager(
+            abi.encodeWithSignature(
+                "withdrawMultipleCommerceBalances(address[],uint256[])",
+                tokens,
+                amounts
+            )
+        );
+    }
+
+    function withdrawAllCommerceBalances(
+        address[] calldata tokens
+    ) external whenNotPaused nonReentrant onlyCommerce(msg.sender) {
+        _delegateToWithdrawalManager(
+            abi.encodeWithSignature(
+                "withdrawAllCommerceBalances(address[])",
+                tokens
+            )
+        );
+    }
+
+    // --- CONSULTAS Y ESTADÍSTICAS ---
+
+    function getWithdrawalCount() external view returns (uint256) {
+        return IWithdrawalManager(withdrawalManager).getWithdrawalCount();
+    }
+
+    function getWithdrawal(
+        uint256 index
+    ) external view returns (IDerampStorage.WithdrawalRecord memory) {
+        return IWithdrawalManager(withdrawalManager).getWithdrawal(index);
+    }
+
+    function getMultipleWithdrawals(
+        uint256[] calldata indices
+    ) external view returns (IDerampStorage.WithdrawalRecord[] memory) {
+        return
+            IWithdrawalManager(withdrawalManager).getMultipleWithdrawals(
+                indices
+            );
+    }
+
+    function getRecentWithdrawals(
+        uint256 limit
+    ) external view returns (IDerampStorage.WithdrawalRecord[] memory) {
+        return
+            IWithdrawalManager(withdrawalManager).getRecentWithdrawals(limit);
+    }
+
+    function getCommerceWithdrawalIndices(
+        address commerce
+    ) external view returns (uint256[] memory) {
+        return
+            IWithdrawalManager(withdrawalManager).getCommerceWithdrawalIndices(
+                commerce
+            );
     }
 
     function getCommerceWithdrawals(
@@ -385,37 +646,35 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
             );
     }
 
-    function getWithdrawalCount() external view returns (uint256) {
-        return IWithdrawalManager(withdrawalManager).getWithdrawalCount();
+    function getRecentCommerceWithdrawals(
+        address commerce,
+        uint256 limit
+    ) external view returns (IDerampStorage.WithdrawalRecord[] memory) {
+        return
+            IWithdrawalManager(withdrawalManager).getRecentCommerceWithdrawals(
+                commerce,
+                limit
+            );
+    }
+
+    function getCommerceWithdrawalStats(
+        address commerce
+    )
+        external
+        view
+        returns (
+            uint256 totalWithdrawals,
+            uint256[] memory totalAmountByToken,
+            address[] memory tokens
+        )
+    {
+        return
+            IWithdrawalManager(withdrawalManager).getCommerceWithdrawalStats(
+                commerce
+            );
     }
 
     // === TREASURY MANAGER FUNCTIONS ===
-
-    function addTreasuryWallet(
-        address wallet,
-        string calldata description
-    ) external whenNotPaused {
-        _delegateToTreasuryManager(
-            abi.encodeWithSignature(
-                "addTreasuryWallet(address,string)",
-                wallet,
-                description
-            )
-        );
-    }
-
-    function withdrawServiceFeesToTreasury(
-        address token,
-        address to
-    ) external whenNotPaused nonReentrant {
-        _delegateToTreasuryManager(
-            abi.encodeWithSignature(
-                "withdrawServiceFeesToTreasury(address,address)",
-                token,
-                to
-            )
-        );
-    }
 
     function getTreasuryWallet(
         address wallet
@@ -429,36 +688,6 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         returns (address[] memory)
     {
         return ITreasuryManager(treasuryManager).getActiveTreasuryWallets();
-    }
-
-    // === COMMERCE ANALYTICS FUNCTIONS ===
-
-    function getCommerceTokens(
-        address commerce
-    ) external view returns (address[] memory) {
-        return IInvoiceManager(invoiceManager).getCommerceTokens(commerce);
-    }
-
-    function getCommerceRevenue(
-        address commerce,
-        address token
-    ) external view returns (uint256 totalRevenue, uint256 netRevenue) {
-        return
-            IInvoiceManager(invoiceManager).getCommerceRevenue(commerce, token);
-    }
-
-    function getCommerceAllRevenues(
-        address commerce
-    )
-        external
-        view
-        returns (
-            address[] memory tokens,
-            uint256[] memory totalRevenues,
-            uint256[] memory netRevenues
-        )
-    {
-        return IInvoiceManager(invoiceManager).getCommerceAllRevenues(commerce);
     }
 
     // === TREASURY ANALYTICS FUNCTIONS ===
@@ -475,6 +704,44 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         )
     {
         return ITreasuryManager(treasuryManager).getServiceFeeWithdrawalStats();
+    }
+
+    // === PER-COMMERCE TOKEN WHITELIST MANAGEMENT ===
+    function addTokenToCommerceWhitelist(
+        address commerce,
+        address[] calldata tokens
+    ) external onlyOnboardingOrAdmin whenNotPaused {
+        _delegateToAccessManager(
+            abi.encodeWithSignature(
+                "addTokenToCommerceWhitelist(address,address[])",
+                commerce,
+                tokens
+            )
+        );
+    }
+
+    function removeTokenFromCommerceWhitelist(
+        address commerce,
+        address[] calldata tokens
+    ) external onlyOnboardingOrAdmin whenNotPaused {
+        _delegateToAccessManager(
+            abi.encodeWithSignature(
+                "removeTokenFromCommerceWhitelist(address,address[])",
+                commerce,
+                tokens
+            )
+        );
+    }
+
+    function isTokenWhitelistedForCommerce(
+        address commerce,
+        address token
+    ) external view returns (bool) {
+        return
+            IAccessManager(accessManager).isTokenWhitelistedForCommerce(
+                commerce,
+                token
+            );
     }
 
     // === COMPATIBILITY FUNCTIONS ===
@@ -548,5 +815,15 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
 
     fallback() external payable {
         revert("Function not found");
+    }
+
+    function _onlyCommerceOrAdminOrBackend(address commerce) internal view {
+        IAccessManager am = IAccessManager(accessManager);
+        require(
+            msg.sender == commerce ||
+                am.hasRole(am.getDefaultAdminRole(), msg.sender) ||
+                am.hasRole(am.getBackendOperatorRole(), msg.sender),
+            "Not authorized"
+        );
     }
 }
