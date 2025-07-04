@@ -320,6 +320,7 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         address commerce = IDerampStorage(storageContract)
             .getInvoice(id)
             .commerce;
+        require(commerce != address(0), "Invoice not found");
         _onlyCommerceOrAdminOrBackend(commerce);
         _delegateToInvoiceManager(
             abi.encodeWithSignature("cancelInvoice(bytes32)", id)
@@ -484,6 +485,11 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
     }
 
     function refundInvoice(bytes32 id) external whenNotPaused nonReentrant {
+        address commerce = IDerampStorage(storageContract)
+            .getInvoice(id)
+            .commerce;
+        require(commerce != address(0), "Invoice not found");
+        _onlyCommerceOrAdminOrBackend(commerce);
         _delegateToPaymentProcessor(
             abi.encodeWithSignature("refundInvoice(bytes32)", id)
         );
@@ -500,6 +506,21 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         address token
     ) external view returns (uint256) {
         return IPaymentProcessor(paymentProcessor).getServiceFeeBalance(token);
+    }
+
+    function getBalances(
+        address commerce,
+        address[] calldata tokens
+    ) external view returns (uint256[] memory) {
+        return
+            IPaymentProcessor(paymentProcessor).getBalances(commerce, tokens);
+    }
+
+    function getServiceFeeBalances(
+        address[] calldata tokens
+    ) external view returns (uint256[] memory) {
+        return
+            IPaymentProcessor(paymentProcessor).getServiceFeeBalances(tokens);
     }
 
     // === WITHDRAWAL MANAGER FUNCTIONS ===

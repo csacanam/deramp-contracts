@@ -124,40 +124,24 @@ contract PaymentProcessor is Pausable, IPaymentProcessor {
             "Invoice is not paid"
         );
 
-        // Calculate refund amounts
-        uint256 serviceFee = calculateServiceFee(
-            invoice.commerce,
-            invoice.paidAmount
-        );
-        uint256 commerceAmount = invoice.paidAmount - serviceFee;
+        uint256 refundAmount = invoice.paidAmount;
 
-        // Check balances
+        // Check commerce balance
         require(
             storageContract.balances(invoice.commerce, invoice.paidToken) >=
-                commerceAmount,
+                refundAmount,
             "Insufficient commerce balance"
         );
-        require(
-            storageContract.serviceFeeBalances(invoice.paidToken) >= serviceFee,
-            "Insufficient service fee balance"
-        );
 
-        // Update balances
+        // Update commerce balance
         storageContract.subtractFromBalance(
             invoice.commerce,
             invoice.paidToken,
-            commerceAmount
-        );
-        storageContract.subtractFromServiceFeeBalance(
-            invoice.paidToken,
-            serviceFee
+            refundAmount
         );
 
         // Transfer refund to payer
-        IERC20(invoice.paidToken).safeTransfer(
-            invoice.payer,
-            invoice.paidAmount
-        );
+        IERC20(invoice.paidToken).safeTransfer(invoice.payer, refundAmount);
 
         // Update invoice
         IDerampStorage.Invoice memory updatedInvoice = invoice;
@@ -170,7 +154,7 @@ contract PaymentProcessor is Pausable, IPaymentProcessor {
             invoiceId,
             invoice.payer,
             invoice.paidToken,
-            invoice.paidAmount
+            refundAmount
         );
     }
 
@@ -181,6 +165,12 @@ contract PaymentProcessor is Pausable, IPaymentProcessor {
         address token
     ) external view returns (uint256) {
         return storageContract.balances(commerce, token);
+    }
+
+    function getServiceFeeBalance(
+        address token
+    ) external view returns (uint256) {
+        return storageContract.serviceFeeBalances(token);
     }
 
     function getBalances(
@@ -194,29 +184,6 @@ contract PaymentProcessor is Pausable, IPaymentProcessor {
         return balances;
     }
 
-    function deductCommerceBalance(
-        address commerce,
-        address token,
-        uint256 amount
-    ) external onlyProxy {
-        storageContract.subtractFromBalance(commerce, token, amount);
-    }
-
-    function deductServiceFeeBalance(
-        address token,
-        uint256 amount
-    ) external onlyProxy {
-        storageContract.subtractFromServiceFeeBalance(token, amount);
-    }
-
-    // === SERVICE FEE MANAGEMENT ===
-
-    function getServiceFeeBalance(
-        address token
-    ) external view returns (uint256) {
-        return storageContract.serviceFeeBalances(token);
-    }
-
     function getServiceFeeBalances(
         address[] calldata tokens
     ) external view returns (uint256[] memory) {
@@ -225,116 +192,5 @@ contract PaymentProcessor is Pausable, IPaymentProcessor {
             balances[i] = storageContract.serviceFeeBalances(tokens[i]);
         }
         return balances;
-    }
-
-    // === ANALYTICS FUNCTIONS (Compatibility) ===
-    // Note: These functions are provided for test compatibility
-    // In production, use InvoiceManager through the proxy for analytics
-
-    /// @notice Get unique tokens used in paid invoices for a commerce
-    /// @param commerce The commerce address
-    /// @return Array of unique token addresses used in paid invoices
-    function getCommerceTokens(
-        address commerce
-    ) external view returns (address[] memory) {
-        bytes32[] memory allInvoices = storageContract.getCommerceInvoices(
-            commerce
-        );
-        address[] memory tempTokens = new address[](allInvoices.length);
-        uint256 uniqueCount = 0;
-
-        for (uint256 i = 0; i < allInvoices.length; i++) {
-            IDerampStorage.Invoice memory inv = storageContract.getInvoice(
-                allInvoices[i]
-            );
-            if (
-                inv.status == IDerampStorage.Status.PAID &&
-                inv.paidToken != address(0)
-            ) {
-                bool isUnique = true;
-                for (uint256 j = 0; j < uniqueCount; j++) {
-                    if (tempTokens[j] == inv.paidToken) {
-                        isUnique = false;
-                        break;
-                    }
-                }
-                if (isUnique) {
-                    tempTokens[uniqueCount] = inv.paidToken;
-                    uniqueCount++;
-                }
-            }
-        }
-
-        address[] memory result = new address[](uniqueCount);
-        for (uint256 i = 0; i < uniqueCount; i++) {
-            result[i] = tempTokens[i];
-        }
-        return result;
-    }
-
-    /// @notice Get revenue statistics for a commerce and specific token
-    /// @param commerce The commerce address
-    /// @param token The token address
-    /// @return totalRevenue Total revenue including fees
-    /// @return netRevenue Net revenue after fees
-    function getCommerceRevenue(
-        address commerce,
-        address token
-    ) external view returns (uint256 totalRevenue, uint256 netRevenue) {
-        bytes32[] memory allInvoices = storageContract.getCommerceInvoices(
-            commerce
-        );
-
-        for (uint256 i = 0; i < allInvoices.length; i++) {
-            IDerampStorage.Invoice memory inv = storageContract.getInvoice(
-                allInvoices[i]
-            );
-            if (
-                inv.status == IDerampStorage.Status.PAID &&
-                inv.paidToken == token
-            ) {
-                totalRevenue += inv.paidAmount;
-                netRevenue += (inv.paidAmount - inv.serviceFee);
-            }
-        }
-    }
-
-    /// @notice Get all revenue statistics for a commerce across all tokens
-    /// @param commerce The commerce address
-    /// @return tokens Array of token addresses
-    /// @return totalRevenues Array of total revenues per token
-    /// @return netRevenues Array of net revenues per token
-    function getCommerceAllRevenues(
-        address commerce
-    )
-        external
-        view
-        returns (
-            address[] memory tokens,
-            uint256[] memory totalRevenues,
-            uint256[] memory netRevenues
-        )
-    {
-        address[] memory allTokens = this.getCommerceTokens(commerce);
-        tokens = allTokens;
-        totalRevenues = new uint256[](allTokens.length);
-        netRevenues = new uint256[](allTokens.length);
-
-        for (uint256 i = 0; i < allTokens.length; i++) {
-            (totalRevenues[i], netRevenues[i]) = this.getCommerceRevenue(
-                commerce,
-                allTokens[i]
-            );
-        }
-    }
-
-    // === EMERGENCY FUNCTIONS ===
-
-    function pause() external onlyProxy {
-        _pause();
-    }
-
-    function unpause() external onlyProxy {
-        _unpause();
     }
 }
