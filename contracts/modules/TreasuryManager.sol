@@ -328,14 +328,4 @@ contract TreasuryManager is Pausable, ITreasuryManager {
         treasuryWalletList = new address[](0);
         amountsByTreasury = new uint256[][](0);
     }
-
-    // === ADMIN FUNCTIONS ===
-
-    function pause() external onlyProxy {
-        _pause();
-    }
-
-    function unpause() external onlyProxy {
-        _unpause();
-    }
 }

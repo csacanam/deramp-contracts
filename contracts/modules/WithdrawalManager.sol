@@ -668,14 +668,4 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
         }
         return balances;
     }
-
-    // === ADMIN FUNCTIONS ===
-
-    function pause() external onlyProxy {
-        _pause();
-    }
-
-    function unpause() external onlyProxy {
-        _unpause();
-    }
 }
