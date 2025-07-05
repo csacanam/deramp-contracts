@@ -207,36 +207,59 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
         return result;
     }
 
-    function recordWithdrawal(
-        address token,
-        uint256 amount,
-        address to,
-        IDerampStorage.WithdrawalType withdrawalType,
-        bytes32 invoiceId
-    ) external onlyProxy {
-        IDerampStorage.WithdrawalRecord memory record = IDerampStorage
-            .WithdrawalRecord({
-                token: token,
-                amount: amount,
-                to: to,
-                initiatedBy: msg.sender,
-                withdrawalType: withdrawalType,
-                createdAt: block.timestamp,
-                invoiceId: invoiceId
-            });
+    function getCommerceWithdrawalStats(
+        address commerce
+    )
+        external
+        view
+        returns (
+            uint256 totalWithdrawals,
+            uint256[] memory totalAmountByToken,
+            address[] memory tokens
+        )
+    {
+        uint256[] memory indices = storageContract.getCommerceWithdrawals(
+            commerce
+        );
+        IDerampStorage.WithdrawalRecord[] memory history = storageContract
+            .getWithdrawalHistory();
+        IDerampStorage.WithdrawalRecord[]
+            memory withdrawals = new IDerampStorage.WithdrawalRecord[](
+                indices.length
+            );
 
-        uint256 index = storageContract.addWithdrawalRecord(record);
+        for (uint256 i = 0; i < indices.length; i++) {
+            withdrawals[i] = history[indices[i]];
+        }
+        totalWithdrawals = withdrawals.length;
 
-        if (withdrawalType == IDerampStorage.WithdrawalType.COMMERCE) {
-            storageContract.addCommerceWithdrawal(to, index);
-        } else if (
-            withdrawalType == IDerampStorage.WithdrawalType.SERVICE_FEE
-        ) {
-            storageContract.addServiceFeeWithdrawal(index);
-            storageContract.addTreasuryWithdrawal(to, index);
+        // Count unique tokens and their amounts
+        address[] memory tempTokens = new address[](withdrawals.length);
+        uint256[] memory tempAmounts = new uint256[](withdrawals.length);
+        uint256 uniqueTokens = 0;
+
+        for (uint256 i = 0; i < withdrawals.length; i++) {
+            bool found = false;
+            for (uint256 j = 0; j < uniqueTokens; j++) {
+                if (tempTokens[j] == withdrawals[i].token) {
+                    tempAmounts[j] += withdrawals[i].amount;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                tempTokens[uniqueTokens] = withdrawals[i].token;
+                tempAmounts[uniqueTokens] = withdrawals[i].amount;
+                uniqueTokens++;
+            }
         }
 
-        // Return value removed to match interface
+        tokens = new address[](uniqueTokens);
+        totalAmountByToken = new uint256[](uniqueTokens);
+        for (uint256 i = 0; i < uniqueTokens; i++) {
+            tokens[i] = tempTokens[i];
+            totalAmountByToken[i] = tempAmounts[i];
+        }
     }
 
     function getWithdrawalHistory()
@@ -377,63 +400,6 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
         return results;
     }
 
-    // === WITHDRAWAL STATISTICS ===
-
-    function getCommerceWithdrawalStats(
-        address commerce
-    )
-        external
-        view
-        returns (
-            uint256 totalWithdrawals,
-            uint256[] memory totalAmountByToken,
-            address[] memory tokens
-        )
-    {
-        uint256[] memory indices = storageContract.getCommerceWithdrawals(
-            commerce
-        );
-        IDerampStorage.WithdrawalRecord[] memory history = storageContract
-            .getWithdrawalHistory();
-        IDerampStorage.WithdrawalRecord[]
-            memory withdrawals = new IDerampStorage.WithdrawalRecord[](
-                indices.length
-            );
-
-        for (uint256 i = 0; i < indices.length; i++) {
-            withdrawals[i] = history[indices[i]];
-        }
-        totalWithdrawals = withdrawals.length;
-
-        // Count unique tokens and their amounts
-        address[] memory tempTokens = new address[](withdrawals.length);
-        uint256[] memory tempAmounts = new uint256[](withdrawals.length);
-        uint256 uniqueTokens = 0;
-
-        for (uint256 i = 0; i < withdrawals.length; i++) {
-            bool found = false;
-            for (uint256 j = 0; j < uniqueTokens; j++) {
-                if (tempTokens[j] == withdrawals[i].token) {
-                    tempAmounts[j] += withdrawals[i].amount;
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                tempTokens[uniqueTokens] = withdrawals[i].token;
-                tempAmounts[uniqueTokens] = withdrawals[i].amount;
-                uniqueTokens++;
-            }
-        }
-
-        tokens = new address[](uniqueTokens);
-        totalAmountByToken = new uint256[](uniqueTokens);
-        for (uint256 i = 0; i < uniqueTokens; i++) {
-            tokens[i] = tempTokens[i];
-            totalAmountByToken[i] = tempAmounts[i];
-        }
-    }
-
     function getTotalWithdrawalsByToken(
         address token
     ) external view returns (uint256 totalAmount, uint256 totalCount) {
@@ -447,8 +413,6 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
             }
         }
     }
-
-    // === BALANCE QUERIES ===
 
     function getCommerceBalance(
         address commerce,
@@ -466,5 +430,39 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
             balances[i] = storageContract.balances(commerce, tokens[i]);
         }
         return balances;
+    }
+
+    // === WITHDRAWAL RECORDING (escritura) ===
+
+    function recordWithdrawal(
+        address token,
+        uint256 amount,
+        address to,
+        IDerampStorage.WithdrawalType withdrawalType,
+        bytes32 invoiceId
+    ) external onlyProxy {
+        IDerampStorage.WithdrawalRecord memory record = IDerampStorage
+            .WithdrawalRecord({
+                token: token,
+                amount: amount,
+                to: to,
+                initiatedBy: msg.sender,
+                withdrawalType: withdrawalType,
+                createdAt: block.timestamp,
+                invoiceId: invoiceId
+            });
+
+        uint256 index = storageContract.addWithdrawalRecord(record);
+
+        if (withdrawalType == IDerampStorage.WithdrawalType.COMMERCE) {
+            storageContract.addCommerceWithdrawal(to, index);
+        } else if (
+            withdrawalType == IDerampStorage.WithdrawalType.SERVICE_FEE
+        ) {
+            storageContract.addServiceFeeWithdrawal(index);
+            storageContract.addTreasuryWithdrawal(to, index);
+        }
+
+        // Return value removed to match interface
     }
 }

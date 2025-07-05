@@ -65,4 +65,26 @@ interface IWithdrawalManager {
         IDerampStorage.WithdrawalType withdrawalType,
         bytes32 invoiceId
     ) external;
+
+    function getWithdrawalHistory()
+        external
+        view
+        returns (IDerampStorage.WithdrawalRecord[] memory);
+
+    function getWithdrawalsByType(
+        IDerampStorage.WithdrawalType withdrawalType
+    ) external view returns (IDerampStorage.WithdrawalRecord[] memory);
+
+    function getWithdrawalsByToken(
+        address token
+    ) external view returns (IDerampStorage.WithdrawalRecord[] memory);
+
+    function getWithdrawalsByDateRange(
+        uint256 fromTimestamp,
+        uint256 toTimestamp
+    ) external view returns (IDerampStorage.WithdrawalRecord[] memory);
+
+    function getTotalWithdrawalsByToken(
+        address token
+    ) external view returns (uint256 totalAmount, uint256 totalCount);
 }

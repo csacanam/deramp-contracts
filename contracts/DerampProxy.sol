@@ -595,20 +595,12 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
             );
     }
 
-    function getRecentWithdrawals(
-        uint256 limit
-    ) external view returns (IDerampStorage.WithdrawalRecord[] memory) {
-        return
-            IWithdrawalManager(withdrawalManager).getRecentWithdrawals(limit);
-    }
-
-    function getCommerceWithdrawalIndices(
-        address commerce
-    ) external view returns (uint256[] memory) {
-        return
-            IWithdrawalManager(withdrawalManager).getCommerceWithdrawalIndices(
-                commerce
-            );
+    function getWithdrawalHistory()
+        external
+        view
+        returns (IDerampStorage.WithdrawalRecord[] memory)
+    {
+        return IWithdrawalManager(withdrawalManager).getWithdrawalHistory();
     }
 
     function getCommerceWithdrawals(
@@ -620,31 +612,46 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
             );
     }
 
-    function getRecentCommerceWithdrawals(
-        address commerce,
-        uint256 limit
+    function getWithdrawalsByType(
+        IDerampStorage.WithdrawalType withdrawalType
     ) external view returns (IDerampStorage.WithdrawalRecord[] memory) {
         return
-            IWithdrawalManager(withdrawalManager).getRecentCommerceWithdrawals(
-                commerce,
-                limit
+            IWithdrawalManager(withdrawalManager).getWithdrawalsByType(
+                withdrawalType
             );
     }
 
-    function getCommerceWithdrawalStats(
-        address commerce
-    )
-        external
-        view
-        returns (
-            uint256 totalWithdrawals,
-            uint256[] memory totalAmountByToken,
-            address[] memory tokens
-        )
-    {
+    function getWithdrawalsByToken(
+        address token
+    ) external view returns (IDerampStorage.WithdrawalRecord[] memory) {
         return
-            IWithdrawalManager(withdrawalManager).getCommerceWithdrawalStats(
-                commerce
+            IWithdrawalManager(withdrawalManager).getWithdrawalsByToken(token);
+    }
+
+    function getRecentWithdrawals(
+        uint256 limit
+    ) external view returns (IDerampStorage.WithdrawalRecord[] memory) {
+        return
+            IWithdrawalManager(withdrawalManager).getRecentWithdrawals(limit);
+    }
+
+    function getWithdrawalsByDateRange(
+        uint256 fromTimestamp,
+        uint256 toTimestamp
+    ) external view returns (IDerampStorage.WithdrawalRecord[] memory) {
+        return
+            IWithdrawalManager(withdrawalManager).getWithdrawalsByDateRange(
+                fromTimestamp,
+                toTimestamp
+            );
+    }
+
+    function getTotalWithdrawalsByToken(
+        address token
+    ) external view returns (uint256 totalAmount, uint256 totalCount) {
+        return
+            IWithdrawalManager(withdrawalManager).getTotalWithdrawalsByToken(
+                token
             );
     }
 
