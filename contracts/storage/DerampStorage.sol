@@ -5,68 +5,60 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "../interfaces/IDerampStorage.sol";
 
 contract DerampStorage is Ownable, IDerampStorage {
-    // === STATE VARIABLES ===
-
-    // Core mappings
-    mapping(bytes32 => Invoice) public invoices;
-    mapping(bytes32 => PaymentOption[]) public invoicePaymentOptions;
-    mapping(address => mapping(address => uint256)) public balances; // commerce => token => amount
+    // =========================
+    // === ACCESS MANAGER ===
+    // =========================
+    // Whitelist storage
     mapping(address => bool) public whitelistedTokens;
     mapping(address => bool) public whitelistedCommerces;
+    address[] public whitelistedTokensList;
+    // Per-commerce token whitelist
+    mapping(address => mapping(address => bool)) public commerceTokenWhitelist;
 
+    // =========================
+    // === INVOICE MANAGER ===
+    // =========================
+    // Invoice storage
+    mapping(bytes32 => Invoice) public invoices;
+    mapping(bytes32 => PaymentOption[]) public invoicePaymentOptions;
+    mapping(address => bytes32[]) public commerceInvoices;
+
+    // =========================
+    // === PAYMENT PROCESSOR ===
+    // =========================
+    // Balance storage
+    mapping(address => mapping(address => uint256)) public balances; // commerce => token => amount
+
+    // =========================
+    // === WITHDRAWAL MANAGER ===
+    // =========================
+    // Withdrawal tracking
+    WithdrawalRecord[] public withdrawalHistory;
+    mapping(address => uint256[]) public commerceWithdrawals;
+
+    // =========================
+    // === TREASURY MANAGER ===
+    // =========================
     // Fee system
     uint256 public defaultFeePercent = 100; // 1% in basis points
     mapping(address => uint256) public commerceFees;
     mapping(address => uint256) public serviceFeeBalances;
-
-    // Commerce invoice tracking
-    mapping(address => bytes32[]) public commerceInvoices;
-
     // Treasury system
     mapping(address => TreasuryWallet) public treasuryWallets;
     address[] public treasuryWalletsList;
-
-    // Token tracking
-    address[] public whitelistedTokensList;
-
-    // Withdrawal tracking
-    WithdrawalRecord[] public withdrawalHistory;
-    mapping(address => uint256[]) public commerceWithdrawals;
     mapping(address => uint256[]) public treasuryWithdrawals;
     uint256[] public serviceFeeWithdrawals;
 
+    // =========================
+    // === INFRASTRUCTURE / MODULES / OWNER ===
+    // =========================
     // Module addresses
     mapping(string => address) public modules;
     mapping(address => bool) public authorizedModules;
 
-    // Per-commerce token whitelist
-    mapping(address => mapping(address => bool)) public commerceTokenWhitelist;
-
     constructor() Ownable(msg.sender) {}
 
-    // === MODULE MANAGEMENT ===
-
-    function setModule(
-        string calldata name,
-        address moduleAddress
-    ) external onlyOwner {
-        modules[name] = moduleAddress;
-        authorizedModules[moduleAddress] = true;
-    }
-
-    function removeModule(string calldata name) external onlyOwner {
-        address moduleAddress = modules[name];
-        modules[name] = address(0);
-        authorizedModules[moduleAddress] = false;
-    }
-
-    modifier onlyAuthorizedModule() {
-        require(authorizedModules[msg.sender], "Unauthorized module");
-        _;
-    }
-
-    // === TOKEN WHITELIST MANAGEMENT ===
-
+    // === ACCESS MANAGER FUNCTIONS ===
     function setWhitelistedToken(
         address token,
         bool whitelisted
@@ -75,10 +67,8 @@ contract DerampStorage is Ownable, IDerampStorage {
         whitelistedTokens[token] = whitelisted;
 
         if (whitelisted && !wasWhitelisted) {
-            // Agregar a la lista
             whitelistedTokensList.push(token);
         } else if (!whitelisted && wasWhitelisted) {
-            // Remover de la lista
             _removeTokenFromList(token);
         }
     }
@@ -99,8 +89,6 @@ contract DerampStorage is Ownable, IDerampStorage {
         return whitelistedTokensList;
     }
 
-    // === COMMERCE WHITELIST MANAGEMENT ===
-
     function setWhitelistedCommerce(
         address commerce,
         bool whitelisted
@@ -108,23 +96,22 @@ contract DerampStorage is Ownable, IDerampStorage {
         whitelistedCommerces[commerce] = whitelisted;
     }
 
-    // === FEE MANAGEMENT ===
-
-    function setDefaultFeePercent(
-        uint256 feePercent
-    ) external onlyAuthorizedModule {
-        defaultFeePercent = feePercent;
-    }
-
-    function setCommerceFee(
+    function setCommerceTokenWhitelisted(
         address commerce,
-        uint256 feePercent
+        address token,
+        bool whitelisted
     ) external onlyAuthorizedModule {
-        commerceFees[commerce] = feePercent;
+        commerceTokenWhitelist[commerce][token] = whitelisted;
     }
 
-    // === INVOICE MANAGEMENT ===
+    function isTokenWhitelistedForCommerce(
+        address commerce,
+        address token
+    ) external view returns (bool) {
+        return commerceTokenWhitelist[commerce][token];
+    }
 
+    // === INVOICE MANAGER FUNCTIONS ===
     function setInvoice(
         bytes32 id,
         Invoice calldata invoice
@@ -168,16 +155,7 @@ contract DerampStorage is Ownable, IDerampStorage {
         return commerceInvoices[commerce];
     }
 
-    // === BALANCE MANAGEMENT ===
-
-    function setBalance(
-        address commerce,
-        address token,
-        uint256 amount
-    ) external onlyAuthorizedModule {
-        balances[commerce][token] = amount;
-    }
-
+    // === PAYMENT PROCESSOR FUNCTIONS ===
     function addToBalance(
         address commerce,
         address token,
@@ -187,15 +165,6 @@ contract DerampStorage is Ownable, IDerampStorage {
     }
 
     function subtractFromBalance(
-        address commerce,
-        address token,
-        uint256 amount
-    ) external onlyAuthorizedModule {
-        require(balances[commerce][token] >= amount, "Insufficient balance");
-        balances[commerce][token] -= amount;
-    }
-
-    function subtractCommerceBalance(
         address commerce,
         address token,
         uint256 amount
@@ -214,112 +183,7 @@ contract DerampStorage is Ownable, IDerampStorage {
         return balances[commerce][token];
     }
 
-    // === SERVICE FEE MANAGEMENT ===
-
-    function setServiceFeeBalance(
-        address token,
-        uint256 amount
-    ) external onlyAuthorizedModule {
-        serviceFeeBalances[token] = amount;
-    }
-
-    function addToServiceFeeBalance(
-        address token,
-        uint256 amount
-    ) external onlyAuthorizedModule {
-        serviceFeeBalances[token] += amount;
-    }
-
-    function subtractFromServiceFeeBalance(
-        address token,
-        uint256 amount
-    ) external onlyAuthorizedModule {
-        require(
-            serviceFeeBalances[token] >= amount,
-            "Insufficient service fee balance"
-        );
-        serviceFeeBalances[token] -= amount;
-    }
-
-    function subtractServiceFeeBalance(
-        address token,
-        uint256 amount
-    ) external onlyAuthorizedModule {
-        require(
-            serviceFeeBalances[token] >= amount,
-            "Insufficient service fee balance"
-        );
-        serviceFeeBalances[token] -= amount;
-    }
-
-    function getServiceFeeBalance(
-        address token
-    ) external view returns (uint256) {
-        return serviceFeeBalances[token];
-    }
-
-    function getServiceFeeTokens() external view returns (address[] memory) {
-        // Return tokens that have service fee balances > 0
-        // This is a simplified implementation - in production you might want to track this more efficiently
-        address[] memory allTokens = new address[](0); // Placeholder
-        return allTokens;
-    }
-
-    // === TREASURY MANAGEMENT ===
-
-    function setTreasuryWallet(
-        address wallet,
-        TreasuryWallet calldata treasuryWallet
-    ) external onlyAuthorizedModule {
-        treasuryWallets[wallet] = treasuryWallet;
-    }
-
-    function addTreasuryWalletToList(
-        address wallet
-    ) external onlyAuthorizedModule {
-        treasuryWalletsList.push(wallet);
-    }
-
-    function removeTreasuryWalletFromList(
-        address wallet
-    ) external onlyAuthorizedModule {
-        for (uint256 i = 0; i < treasuryWalletsList.length; i++) {
-            if (treasuryWalletsList[i] == wallet) {
-                treasuryWalletsList[i] = treasuryWalletsList[
-                    treasuryWalletsList.length - 1
-                ];
-                treasuryWalletsList.pop();
-                break;
-            }
-        }
-    }
-
-    function setTreasuryWalletStatus(
-        address wallet,
-        bool isActive
-    ) external onlyAuthorizedModule {
-        treasuryWallets[wallet].isActive = isActive;
-    }
-
-    function updateTreasuryWallet(
-        address wallet,
-        TreasuryWallet calldata updatedWallet
-    ) external onlyAuthorizedModule {
-        treasuryWallets[wallet] = updatedWallet;
-    }
-
-    function getTreasuryWallet(
-        address wallet
-    ) external view returns (TreasuryWallet memory) {
-        return treasuryWallets[wallet];
-    }
-
-    function getTreasuryWalletsList() external view returns (address[] memory) {
-        return treasuryWalletsList;
-    }
-
-    // === WITHDRAWAL MANAGEMENT ===
-
+    // === WITHDRAWAL MANAGER FUNCTIONS ===
     function addWithdrawalRecord(
         WithdrawalRecord calldata record
     ) external onlyAuthorizedModule returns (uint256) {
@@ -376,20 +240,113 @@ contract DerampStorage is Ownable, IDerampStorage {
         return serviceFeeWithdrawals;
     }
 
-    // === PER-COMMERCE TOKEN WHITELIST MANAGEMENT ===
-
-    function setCommerceTokenWhitelisted(
-        address commerce,
-        address token,
-        bool whitelisted
+    // === TREASURY MANAGER FUNCTIONS ===
+    function setDefaultFeePercent(
+        uint256 feePercent
     ) external onlyAuthorizedModule {
-        commerceTokenWhitelist[commerce][token] = whitelisted;
+        defaultFeePercent = feePercent;
     }
 
-    function isTokenWhitelistedForCommerce(
+    function setCommerceFee(
         address commerce,
+        uint256 feePercent
+    ) external onlyAuthorizedModule {
+        commerceFees[commerce] = feePercent;
+    }
+
+    function setTreasuryWallet(
+        address wallet,
+        TreasuryWallet calldata treasuryWallet
+    ) external onlyAuthorizedModule {
+        treasuryWallets[wallet] = treasuryWallet;
+    }
+
+    function addTreasuryWalletToList(
+        address wallet
+    ) external onlyAuthorizedModule {
+        treasuryWalletsList.push(wallet);
+    }
+
+    function removeTreasuryWalletFromList(
+        address wallet
+    ) external onlyAuthorizedModule {
+        for (uint256 i = 0; i < treasuryWalletsList.length; i++) {
+            if (treasuryWalletsList[i] == wallet) {
+                treasuryWalletsList[i] = treasuryWalletsList[
+                    treasuryWalletsList.length - 1
+                ];
+                treasuryWalletsList.pop();
+                break;
+            }
+        }
+    }
+
+    function setTreasuryWalletStatus(
+        address wallet,
+        bool isActive
+    ) external onlyAuthorizedModule {
+        treasuryWallets[wallet].isActive = isActive;
+    }
+
+    function updateTreasuryWallet(
+        address wallet,
+        TreasuryWallet calldata updatedWallet
+    ) external onlyAuthorizedModule {
+        treasuryWallets[wallet] = updatedWallet;
+    }
+
+    function getTreasuryWallet(
+        address wallet
+    ) external view returns (TreasuryWallet memory) {
+        return treasuryWallets[wallet];
+    }
+
+    function getTreasuryWalletsList() external view returns (address[] memory) {
+        return treasuryWalletsList;
+    }
+
+    // === SERVICE FEE FUNCTIONS (usadas por TreasuryManager) ===
+    function addToServiceFeeBalance(
+        address token,
+        uint256 amount
+    ) external onlyAuthorizedModule {
+        serviceFeeBalances[token] += amount;
+    }
+
+    function subtractServiceFeeBalance(
+        address token,
+        uint256 amount
+    ) external onlyAuthorizedModule {
+        require(
+            serviceFeeBalances[token] >= amount,
+            "Insufficient service fee balance"
+        );
+        serviceFeeBalances[token] -= amount;
+    }
+
+    function getServiceFeeBalance(
         address token
-    ) external view returns (bool) {
-        return commerceTokenWhitelist[commerce][token];
+    ) external view returns (uint256) {
+        return serviceFeeBalances[token];
+    }
+
+    // === INFRASTRUCTURE / MODULES / OWNER FUNCTIONS ===
+    function setModule(
+        string calldata name,
+        address moduleAddress
+    ) external onlyOwner {
+        modules[name] = moduleAddress;
+        authorizedModules[moduleAddress] = true;
+    }
+
+    function removeModule(string calldata name) external onlyOwner {
+        address moduleAddress = modules[name];
+        modules[name] = address(0);
+        authorizedModules[moduleAddress] = false;
+    }
+
+    modifier onlyAuthorizedModule() {
+        require(authorizedModules[msg.sender], "Unauthorized module");
+        _;
     }
 }

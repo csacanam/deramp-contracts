@@ -5,11 +5,12 @@ import "./IDerampStorage.sol";
 
 interface IWithdrawalManager {
     // Commerce withdrawals
-    function withdraw(address token) external;
+    function withdraw(address commerce, address token) external;
 
-    function withdrawAll(address[] calldata tokens) external;
+    function withdrawAll(address commerce, address[] calldata tokens) external;
 
-    function withdrawCommerceBalance(
+    function withdrawTo(
+        address commerce,
         address token,
         uint256 amount,
         address to

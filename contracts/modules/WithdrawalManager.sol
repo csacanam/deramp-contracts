@@ -28,279 +28,78 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
 
     // === COMMERCE WITHDRAWALS ===
 
-    function withdraw(address token) external onlyProxy {
-        uint256 amount = storageContract.balances(msg.sender, token);
+    function withdraw(address commerce, address token) external onlyProxy {
+        uint256 amount = storageContract.balances(commerce, token);
         require(amount > 0, "No funds");
 
         // Update balance
-        storageContract.subtractFromBalance(msg.sender, token, amount);
+        storageContract.subtractFromBalance(commerce, token, amount);
 
         // Transfer tokens
-        IERC20(token).safeTransfer(msg.sender, amount);
+        IERC20(token).safeTransfer(commerce, amount);
 
         // Create withdrawal record
         IDerampStorage.WithdrawalRecord memory record = IDerampStorage
             .WithdrawalRecord({
                 token: token,
                 amount: amount,
-                to: msg.sender,
-                initiatedBy: msg.sender,
+                to: commerce,
+                initiatedBy: commerce,
                 withdrawalType: IDerampStorage.WithdrawalType.COMMERCE,
                 createdAt: block.timestamp,
                 invoiceId: bytes32(0)
             });
 
         uint256 index = storageContract.addWithdrawalRecord(record);
-        storageContract.addCommerceWithdrawal(msg.sender, index);
+        storageContract.addCommerceWithdrawal(commerce, index);
 
-        emit IDerampStorage.Withdrawn(msg.sender, token, amount);
+        emit IDerampStorage.Withdrawn(commerce, token, amount);
     }
 
-    function withdrawAll(address[] calldata tokens) external onlyProxy {
+    function withdrawAll(
+        address commerce,
+        address[] calldata tokens
+    ) external onlyProxy {
         require(tokens.length > 0, "No tokens provided");
         uint256 totalWithdrawn = 0;
 
         for (uint256 i = 0; i < tokens.length; i++) {
             address token = tokens[i];
-            uint256 amount = storageContract.balances(msg.sender, token);
+            uint256 amount = storageContract.balances(commerce, token);
 
             if (amount == 0) {
                 continue;
             }
 
             // Update balance
-            storageContract.subtractFromBalance(msg.sender, token, amount);
+            storageContract.subtractFromBalance(commerce, token, amount);
 
             // Transfer tokens
-            IERC20(token).safeTransfer(msg.sender, amount);
+            IERC20(token).safeTransfer(commerce, amount);
 
             // Create withdrawal record
             IDerampStorage.WithdrawalRecord memory record = IDerampStorage
                 .WithdrawalRecord({
                     token: token,
                     amount: amount,
-                    to: msg.sender,
-                    initiatedBy: msg.sender,
+                    to: commerce,
+                    initiatedBy: commerce,
                     withdrawalType: IDerampStorage.WithdrawalType.COMMERCE,
                     createdAt: block.timestamp,
                     invoiceId: bytes32(0)
                 });
 
             uint256 index = storageContract.addWithdrawalRecord(record);
-            storageContract.addCommerceWithdrawal(msg.sender, index);
+            storageContract.addCommerceWithdrawal(commerce, index);
 
-            emit IDerampStorage.Withdrawn(msg.sender, token, amount);
+            emit IDerampStorage.Withdrawn(commerce, token, amount);
             totalWithdrawn++;
         }
 
         require(totalWithdrawn > 0, "No funds to withdraw");
     }
 
-    function withdrawCommerceBalanceForInvoice(
-        bytes32 invoiceId,
-        address token,
-        uint256 amount
-    ) external onlyProxy {
-        require(amount > 0, "Amount must be greater than 0");
-        require(
-            storageContract.balances(msg.sender, token) >= amount,
-            "Insufficient balance"
-        );
-
-        // Verify invoice belongs to commerce
-        IDerampStorage.Invoice memory invoice = storageContract.getInvoice(
-            invoiceId
-        );
-        require(
-            invoice.commerce == msg.sender,
-            "Invoice does not belong to commerce"
-        );
-
-        // Update balance
-        storageContract.subtractCommerceBalance(msg.sender, token, amount);
-
-        // Transfer tokens
-        IERC20(token).safeTransfer(msg.sender, amount);
-
-        // Create withdrawal record with invoice reference
-        IDerampStorage.WithdrawalRecord memory record = IDerampStorage
-            .WithdrawalRecord({
-                token: token,
-                amount: amount,
-                to: msg.sender,
-                initiatedBy: msg.sender,
-                withdrawalType: IDerampStorage.WithdrawalType.COMMERCE,
-                createdAt: block.timestamp,
-                invoiceId: invoiceId
-            });
-
-        storageContract.addWithdrawalRecord(record);
-
-        emit IDerampStorage.CommerceWithdrawal(msg.sender, token, amount);
-    }
-
-    function withdrawCommerceBalance(
-        address token,
-        uint256 amount,
-        address to
-    ) external onlyProxy {
-        require(amount > 0, "Amount must be greater than 0");
-        require(to != address(0), "Invalid recipient");
-        require(
-            storageContract.balances(msg.sender, token) >= amount,
-            "Insufficient balance"
-        );
-
-        // Update balance
-        storageContract.subtractCommerceBalance(msg.sender, token, amount);
-
-        // Transfer tokens
-        IERC20(token).safeTransfer(to, amount);
-
-        // Create withdrawal record
-        IDerampStorage.WithdrawalRecord memory record = IDerampStorage
-            .WithdrawalRecord({
-                token: token,
-                amount: amount,
-                to: to,
-                initiatedBy: msg.sender,
-                withdrawalType: IDerampStorage.WithdrawalType.COMMERCE,
-                createdAt: block.timestamp,
-                invoiceId: bytes32(0)
-            });
-
-        storageContract.addWithdrawalRecord(record);
-
-        emit IDerampStorage.CommerceWithdrawal(msg.sender, token, amount);
-    }
-
-    function withdrawAllCommerceBalance(address token) external onlyProxy {
-        uint256 balance = storageContract.balances(msg.sender, token);
-        require(balance > 0, "No balance to withdraw");
-
-        // Inline withdrawCommerceBalance logic
-        require(
-            storageContract.balances(msg.sender, token) >= balance,
-            "Insufficient balance"
-        );
-
-        // Update balance
-        storageContract.subtractCommerceBalance(msg.sender, token, balance);
-
-        // Transfer tokens
-        IERC20(token).safeTransfer(msg.sender, balance);
-
-        // Create withdrawal record
-        IDerampStorage.WithdrawalRecord memory record = IDerampStorage
-            .WithdrawalRecord({
-                token: token,
-                amount: balance,
-                to: msg.sender,
-                initiatedBy: msg.sender,
-                withdrawalType: IDerampStorage.WithdrawalType.COMMERCE,
-                createdAt: block.timestamp,
-                invoiceId: bytes32(0)
-            });
-
-        storageContract.addWithdrawalRecord(record);
-
-        emit IDerampStorage.CommerceWithdrawal(msg.sender, token, balance);
-    }
-
-    function withdrawMultipleCommerceBalances(
-        address[] calldata tokens,
-        uint256[] calldata amounts
-    ) external onlyProxy {
-        require(tokens.length == amounts.length, "Array length mismatch");
-
-        for (uint256 i = 0; i < tokens.length; i++) {
-            // Inline withdrawCommerceBalance logic
-            require(amounts[i] > 0, "Amount must be greater than 0");
-            require(
-                storageContract.balances(msg.sender, tokens[i]) >= amounts[i],
-                "Insufficient balance"
-            );
-
-            // Update balance
-            storageContract.subtractCommerceBalance(
-                msg.sender,
-                tokens[i],
-                amounts[i]
-            );
-
-            // Transfer tokens
-            IERC20(tokens[i]).safeTransfer(msg.sender, amounts[i]);
-
-            // Create withdrawal record
-            IDerampStorage.WithdrawalRecord memory record = IDerampStorage
-                .WithdrawalRecord({
-                    token: tokens[i],
-                    amount: amounts[i],
-                    to: msg.sender,
-                    initiatedBy: msg.sender,
-                    withdrawalType: IDerampStorage.WithdrawalType.COMMERCE,
-                    createdAt: block.timestamp,
-                    invoiceId: bytes32(0)
-                });
-
-            storageContract.addWithdrawalRecord(record);
-
-            emit IDerampStorage.CommerceWithdrawal(
-                msg.sender,
-                tokens[i],
-                amounts[i]
-            );
-        }
-    }
-
-    function withdrawAllCommerceBalances(
-        address[] calldata tokens
-    ) external onlyProxy {
-        for (uint256 i = 0; i < tokens.length; i++) {
-            uint256 balance = storageContract.balances(msg.sender, tokens[i]);
-            if (balance > 0) {
-                // Inline withdrawCommerceBalance logic
-                require(
-                    storageContract.balances(msg.sender, tokens[i]) >= balance,
-                    "Insufficient balance"
-                );
-
-                // Update balance
-                storageContract.subtractCommerceBalance(
-                    msg.sender,
-                    tokens[i],
-                    balance
-                );
-
-                // Transfer tokens
-                IERC20(tokens[i]).safeTransfer(msg.sender, balance);
-
-                // Create withdrawal record
-                IDerampStorage.WithdrawalRecord memory record = IDerampStorage
-                    .WithdrawalRecord({
-                        token: tokens[i],
-                        amount: balance,
-                        to: msg.sender,
-                        initiatedBy: msg.sender,
-                        withdrawalType: IDerampStorage.WithdrawalType.COMMERCE,
-                        createdAt: block.timestamp,
-                        invoiceId: bytes32(0)
-                    });
-
-                storageContract.addWithdrawalRecord(record);
-
-                emit IDerampStorage.CommerceWithdrawal(
-                    msg.sender,
-                    tokens[i],
-                    balance
-                );
-            }
-        }
-    }
-
-    // === ADMIN WITHDRAWALS ===
-
-    function adminWithdrawCommerceBalance(
+    function withdrawTo(
         address commerce,
         address token,
         uint256 amount,
@@ -314,7 +113,7 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
         );
 
         // Update balance
-        storageContract.subtractCommerceBalance(commerce, token, amount);
+        storageContract.subtractFromBalance(commerce, token, amount);
 
         // Transfer tokens
         IERC20(token).safeTransfer(to, amount);
@@ -325,7 +124,7 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
                 token: token,
                 amount: amount,
                 to: to,
-                initiatedBy: msg.sender,
+                initiatedBy: commerce,
                 withdrawalType: IDerampStorage.WithdrawalType.COMMERCE,
                 createdAt: block.timestamp,
                 invoiceId: bytes32(0)

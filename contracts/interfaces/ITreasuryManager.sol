@@ -14,6 +14,11 @@ interface ITreasuryManager {
 
     function setTreasuryWalletStatus(address wallet, bool isActive) external;
 
+    function updateTreasuryWallet(
+        address wallet,
+        IDerampStorage.TreasuryWallet calldata updatedWallet
+    ) external;
+
     // Treasury wallet queries
     function getTreasuryWallet(
         address wallet

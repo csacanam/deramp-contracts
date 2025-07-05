@@ -169,12 +169,6 @@ interface IDerampStorage {
     ) external view returns (bytes32[] memory);
 
     // === BALANCE MANAGEMENT ===
-    function setBalance(
-        address commerce,
-        address token,
-        uint256 amount
-    ) external;
-
     function addToBalance(
         address commerce,
         address token,
@@ -187,34 +181,19 @@ interface IDerampStorage {
         uint256 amount
     ) external;
 
-    function subtractCommerceBalance(
-        address commerce,
-        address token,
-        uint256 amount
-    ) external;
-
     function getCommerceBalance(
         address commerce,
         address token
     ) external view returns (uint256);
 
     // === SERVICE FEE MANAGEMENT ===
-    function setServiceFeeBalance(address token, uint256 amount) external;
-
     function addToServiceFeeBalance(address token, uint256 amount) external;
-
-    function subtractFromServiceFeeBalance(
-        address token,
-        uint256 amount
-    ) external;
 
     function subtractServiceFeeBalance(address token, uint256 amount) external;
 
     function getServiceFeeBalance(
         address token
     ) external view returns (uint256);
-
-    function getServiceFeeTokens() external view returns (address[] memory);
 
     // === TREASURY MANAGEMENT ===
     function setTreasuryWallet(

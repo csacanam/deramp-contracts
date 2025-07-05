@@ -30,64 +30,7 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
 
     constructor() Ownable(msg.sender) {}
 
-    // === MODULE MANAGEMENT ===
-
-    function setStorageContract(address _storage) external onlyOwner {
-        emit ModuleUpdated("storage", storageContract, _storage);
-        storageContract = _storage;
-    }
-
-    function setAccessManager(address _accessManager) external onlyOwner {
-        emit ModuleUpdated("accessManager", accessManager, _accessManager);
-        accessManager = _accessManager;
-    }
-
-    function setInvoiceManager(address _invoiceManager) external onlyOwner {
-        emit ModuleUpdated("invoiceManager", invoiceManager, _invoiceManager);
-        invoiceManager = _invoiceManager;
-    }
-
-    function setPaymentProcessor(address _paymentProcessor) external onlyOwner {
-        emit ModuleUpdated(
-            "paymentProcessor",
-            paymentProcessor,
-            _paymentProcessor
-        );
-        paymentProcessor = _paymentProcessor;
-    }
-
-    function setWithdrawalManager(
-        address _withdrawalManager
-    ) external onlyOwner {
-        emit ModuleUpdated(
-            "withdrawalManager",
-            withdrawalManager,
-            _withdrawalManager
-        );
-        withdrawalManager = _withdrawalManager;
-    }
-
-    function setTreasuryManager(address _treasuryManager) external onlyOwner {
-        emit ModuleUpdated(
-            "treasuryManager",
-            treasuryManager,
-            _treasuryManager
-        );
-        treasuryManager = _treasuryManager;
-    }
-
-    // === EMERGENCY CONTROLS ===
-
-    function pause() external onlyOwner {
-        _pause();
-        emit Emergency("Contract paused by owner");
-    }
-
-    function unpause() external onlyOwner {
-        _unpause();
-    }
-
-    // === ROLE MODIFIERS (ADMIN OR SPECIFIC) ===
+    // === MODIFIERS ===
     modifier onlyTokenManagerOrAdmin() {
         IAccessManager am = IAccessManager(accessManager);
         require(
@@ -134,7 +77,6 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         );
         _;
     }
-
     modifier onlyCommerceOrAdminOrBackend(address commerce) {
         IAccessManager am = IAccessManager(accessManager);
         require(
@@ -144,6 +86,79 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
             "Not authorized"
         );
         _;
+    }
+    modifier onlyRegisteredCommerce() {
+        require(
+            IAccessManager(accessManager).isCommerceWhitelisted(msg.sender),
+            "Commerce not whitelisted"
+        );
+        _;
+    }
+
+    // Internal modifier for commerce, admin, or backend
+    function _onlyCommerceOrAdminOrBackend(address commerce) internal view {
+        IAccessManager am = IAccessManager(accessManager);
+        require(
+            msg.sender == commerce ||
+                am.hasRole(am.getDefaultAdminRole(), msg.sender) ||
+                am.hasRole(am.getBackendOperatorRole(), msg.sender),
+            "Not authorized"
+        );
+    }
+
+    // === MODULE MANAGEMENT ===
+    function setStorageContract(address _storage) external onlyOwner {
+        emit ModuleUpdated("storage", storageContract, _storage);
+        storageContract = _storage;
+    }
+
+    function setAccessManager(address _accessManager) external onlyOwner {
+        emit ModuleUpdated("accessManager", accessManager, _accessManager);
+        accessManager = _accessManager;
+    }
+
+    function setInvoiceManager(address _invoiceManager) external onlyOwner {
+        emit ModuleUpdated("invoiceManager", invoiceManager, _invoiceManager);
+        invoiceManager = _invoiceManager;
+    }
+
+    function setPaymentProcessor(address _paymentProcessor) external onlyOwner {
+        emit ModuleUpdated(
+            "paymentProcessor",
+            paymentProcessor,
+            _paymentProcessor
+        );
+        paymentProcessor = _paymentProcessor;
+    }
+
+    function setWithdrawalManager(
+        address _withdrawalManager
+    ) external onlyOwner {
+        emit ModuleUpdated(
+            "withdrawalManager",
+            withdrawalManager,
+            _withdrawalManager
+        );
+        withdrawalManager = _withdrawalManager;
+    }
+
+    function setTreasuryManager(address _treasuryManager) external onlyOwner {
+        emit ModuleUpdated(
+            "treasuryManager",
+            treasuryManager,
+            _treasuryManager
+        );
+        treasuryManager = _treasuryManager;
+    }
+
+    // === EMERGENCY CONTROLS ===
+    function pause() external onlyOwner {
+        _pause();
+        emit Emergency("Contract paused by owner");
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
     }
 
     // === ACCESS MANAGER FUNCTIONS ===
@@ -294,11 +309,7 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         );
     }
 
-    // Backend operator (ejemplo)
-    // function someBackendFunction(...) external onlyBackendOperatorOrAdmin whenNotPaused { ... }
-
     // === INVOICE MANAGER FUNCTIONS ===
-
     function createInvoice(
         bytes32 id,
         address commerce,
@@ -525,103 +536,45 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
 
     // === WITHDRAWAL MANAGER FUNCTIONS ===
 
-    // Modifier: Only the commerce can call
-    modifier onlyCommerce(address commerce) {
-        require(msg.sender == commerce, "Only the commerce can call");
-        _;
-    }
-
-    // --- WITHDRAWALS ---
-
     function withdraw(
         address token
-    ) external whenNotPaused nonReentrant onlyCommerce(msg.sender) {
+    ) external whenNotPaused nonReentrant onlyRegisteredCommerce {
         _delegateToWithdrawalManager(
-            abi.encodeWithSignature("withdraw(address)", token)
+            abi.encodeWithSignature(
+                "withdraw(address,address)",
+                msg.sender,
+                token
+            )
         );
     }
 
     function withdrawAll(
         address[] calldata tokens
-    ) external whenNotPaused nonReentrant onlyCommerce(msg.sender) {
+    ) external whenNotPaused nonReentrant onlyRegisteredCommerce {
         _delegateToWithdrawalManager(
-            abi.encodeWithSignature("withdrawAll(address[])", tokens)
+            abi.encodeWithSignature(
+                "withdrawAll(address,address[])",
+                msg.sender,
+                tokens
+            )
         );
     }
 
-    function withdrawCommerceBalance(
+    function withdrawTo(
         address token,
         uint256 amount,
         address to
-    ) external whenNotPaused nonReentrant onlyCommerce(msg.sender) {
+    ) external whenNotPaused nonReentrant onlyRegisteredCommerce {
         _delegateToWithdrawalManager(
             abi.encodeWithSignature(
-                "withdrawCommerceBalance(address,uint256,address)",
+                "withdrawTo(address,address,uint256,address)",
+                msg.sender,
                 token,
                 amount,
                 to
             )
         );
     }
-
-    function withdrawCommerceBalanceForInvoice(
-        bytes32 invoiceId,
-        address token,
-        uint256 amount
-    ) external whenNotPaused nonReentrant {
-        address commerce = IDerampStorage(storageContract)
-            .getInvoice(invoiceId)
-            .commerce;
-        require(
-            msg.sender == commerce,
-            "Only the commerce can withdraw for this invoice"
-        );
-        _delegateToWithdrawalManager(
-            abi.encodeWithSignature(
-                "withdrawCommerceBalanceForInvoice(bytes32,address,uint256)",
-                invoiceId,
-                token,
-                amount
-            )
-        );
-    }
-
-    function withdrawAllCommerceBalance(
-        address token
-    ) external whenNotPaused nonReentrant onlyCommerce(msg.sender) {
-        _delegateToWithdrawalManager(
-            abi.encodeWithSignature(
-                "withdrawAllCommerceBalance(address)",
-                token
-            )
-        );
-    }
-
-    function withdrawMultipleCommerceBalances(
-        address[] calldata tokens,
-        uint256[] calldata amounts
-    ) external whenNotPaused nonReentrant onlyCommerce(msg.sender) {
-        _delegateToWithdrawalManager(
-            abi.encodeWithSignature(
-                "withdrawMultipleCommerceBalances(address[],uint256[])",
-                tokens,
-                amounts
-            )
-        );
-    }
-
-    function withdrawAllCommerceBalances(
-        address[] calldata tokens
-    ) external whenNotPaused nonReentrant onlyCommerce(msg.sender) {
-        _delegateToWithdrawalManager(
-            abi.encodeWithSignature(
-                "withdrawAllCommerceBalances(address[])",
-                tokens
-            )
-        );
-    }
-
-    // --- CONSULTAS Y ESTADÍSTICAS ---
 
     function getWithdrawalCount() external view returns (uint256) {
         return IWithdrawalManager(withdrawalManager).getWithdrawalCount();
@@ -709,6 +662,19 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         returns (address[] memory)
     {
         return ITreasuryManager(treasuryManager).getActiveTreasuryWallets();
+    }
+
+    function updateTreasuryWallet(
+        address wallet,
+        IDerampStorage.TreasuryWallet calldata updatedWallet
+    ) external onlyTreasuryManagerOrAdmin whenNotPaused {
+        _delegateToTreasuryManager(
+            abi.encodeWithSignature(
+                "updateTreasuryWallet(address,(address,bool,uint256,string))",
+                wallet,
+                updatedWallet
+            )
+        );
     }
 
     // === TREASURY ANALYTICS FUNCTIONS ===
@@ -836,15 +802,5 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
 
     fallback() external payable {
         revert("Function not found");
-    }
-
-    function _onlyCommerceOrAdminOrBackend(address commerce) internal view {
-        IAccessManager am = IAccessManager(accessManager);
-        require(
-            msg.sender == commerce ||
-                am.hasRole(am.getDefaultAdminRole(), msg.sender) ||
-                am.hasRole(am.getBackendOperatorRole(), msg.sender),
-            "Not authorized"
-        );
     }
 }

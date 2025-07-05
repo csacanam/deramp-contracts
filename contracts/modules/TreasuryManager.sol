@@ -64,6 +64,17 @@ contract TreasuryManager is Pausable, ITreasuryManager {
         emit IDerampStorage.TreasuryWalletStatusChanged(wallet, isActive);
     }
 
+    function updateTreasuryWallet(
+        address wallet,
+        IDerampStorage.TreasuryWallet calldata updatedWallet
+    ) external onlyProxy {
+        storageContract.updateTreasuryWallet(wallet, updatedWallet);
+        emit IDerampStorage.TreasuryWalletUpdated(
+            wallet,
+            updatedWallet.description
+        );
+    }
+
     // === SERVICE FEE WITHDRAWALS ===
 
     function withdrawServiceFeesToTreasury(
