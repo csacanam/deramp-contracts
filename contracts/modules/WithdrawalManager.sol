@@ -1,6 +1,27 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+/**
+ * @title WithdrawalManager
+ * @notice Handles all withdrawal logic and queries for the Deramp system.
+ *
+ * @dev Responsibilities:
+ * - Manages user/commercial withdrawals and withdrawal history.
+ * - Handles withdrawal limits, types, and statistics.
+ * - Exposes queries for withdrawal records and analytics.
+ *
+ * Upgradeability:
+ * - All withdrawal logic should reside here for easy upgrades.
+ * - Only the proxy or authorized modules should interact with this contract.
+ *
+ * Security:
+ * - Enforces access control for withdrawals.
+ * - Only the proxy or authorized users can initiate withdrawals.
+ *
+ * Recommendations:
+ * - Document all withdrawal types and their intended use.
+ * - Keep withdrawal logic isolated from unrelated business logic.
+ */
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
@@ -430,39 +451,5 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
             balances[i] = storageContract.balances(commerce, tokens[i]);
         }
         return balances;
-    }
-
-    // === WITHDRAWAL RECORDING (escritura) ===
-
-    function recordWithdrawal(
-        address token,
-        uint256 amount,
-        address to,
-        IDerampStorage.WithdrawalType withdrawalType,
-        bytes32 invoiceId
-    ) external onlyProxy {
-        IDerampStorage.WithdrawalRecord memory record = IDerampStorage
-            .WithdrawalRecord({
-                token: token,
-                amount: amount,
-                to: to,
-                initiatedBy: msg.sender,
-                withdrawalType: withdrawalType,
-                createdAt: block.timestamp,
-                invoiceId: invoiceId
-            });
-
-        uint256 index = storageContract.addWithdrawalRecord(record);
-
-        if (withdrawalType == IDerampStorage.WithdrawalType.COMMERCE) {
-            storageContract.addCommerceWithdrawal(to, index);
-        } else if (
-            withdrawalType == IDerampStorage.WithdrawalType.SERVICE_FEE
-        ) {
-            storageContract.addServiceFeeWithdrawal(index);
-            storageContract.addTreasuryWithdrawal(to, index);
-        }
-
-        // Return value removed to match interface
     }
 }

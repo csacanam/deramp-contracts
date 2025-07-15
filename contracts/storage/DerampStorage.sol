@@ -1,6 +1,30 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+/**
+ * @title DerampStorage
+ * @notice Centralized storage contract for the Deramp modular system.
+ *
+ * @dev Responsibilities:
+ * - Stores all persistent data for the system (balances, invoices, roles, whitelists, etc.).
+ * - Provides CRUD functions for managers to read/write data.
+ * - Should contain NO business logic—only data access and storage.
+ *
+ * Upgradeability:
+ * - Storage layout must remain consistent across upgrades.
+ * - Only add new variables at the end to avoid storage collisions.
+ * - All data access should be via manager contracts, not directly by users.
+ *
+ * Security:
+ * - Only authorized modules (managers) can modify storage.
+ * - The owner can add/remove modules for upgradeability.
+ * - No direct user interaction; all access is mediated by managers.
+ *
+ * Recommendations:
+ * - Keep storage contracts as simple as possible.
+ * - Never add business logic or complex calculations here.
+ * - Document all new storage variables and their intended use.
+ */
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "../interfaces/IDerampStorage.sol";
 
@@ -46,7 +70,6 @@ contract DerampStorage is Ownable, IDerampStorage {
     // Treasury system
     mapping(address => TreasuryWallet) public treasuryWallets;
     address[] public treasuryWalletsList;
-    mapping(address => uint256[]) public treasuryWithdrawals;
     uint256[] public serviceFeeWithdrawals;
 
     // =========================
@@ -199,13 +222,6 @@ contract DerampStorage is Ownable, IDerampStorage {
         commerceWithdrawals[commerce].push(index);
     }
 
-    function addTreasuryWithdrawal(
-        address treasury,
-        uint256 index
-    ) external onlyAuthorizedModule {
-        treasuryWithdrawals[treasury].push(index);
-    }
-
     function addServiceFeeWithdrawal(
         uint256 index
     ) external onlyAuthorizedModule {
@@ -226,11 +242,7 @@ contract DerampStorage is Ownable, IDerampStorage {
         return commerceWithdrawals[commerce];
     }
 
-    function getTreasuryWithdrawals(
-        address treasury
-    ) external view returns (uint256[] memory) {
-        return treasuryWithdrawals[treasury];
-    }
+    // === TREASURY MANAGER FUNCTIONS ===
 
     function getServiceFeeWithdrawals()
         external
@@ -238,20 +250,6 @@ contract DerampStorage is Ownable, IDerampStorage {
         returns (uint256[] memory)
     {
         return serviceFeeWithdrawals;
-    }
-
-    // === TREASURY MANAGER FUNCTIONS ===
-    function setDefaultFeePercent(
-        uint256 feePercent
-    ) external onlyAuthorizedModule {
-        defaultFeePercent = feePercent;
-    }
-
-    function setCommerceFee(
-        address commerce,
-        uint256 feePercent
-    ) external onlyAuthorizedModule {
-        commerceFees[commerce] = feePercent;
     }
 
     function setTreasuryWallet(
@@ -279,6 +277,7 @@ contract DerampStorage is Ownable, IDerampStorage {
                 break;
             }
         }
+        delete treasuryWallets[wallet];
     }
 
     function setTreasuryWalletStatus(
@@ -299,6 +298,13 @@ contract DerampStorage is Ownable, IDerampStorage {
         address wallet
     ) external view returns (TreasuryWallet memory) {
         return treasuryWallets[wallet];
+    }
+
+    function isTreasuryWalletActive(
+        address wallet
+    ) external view returns (bool) {
+        TreasuryWallet memory treasuryWallet = treasuryWallets[wallet];
+        return treasuryWallet.wallet != address(0) && treasuryWallet.isActive;
     }
 
     function getTreasuryWalletsList() external view returns (address[] memory) {
@@ -328,6 +334,19 @@ contract DerampStorage is Ownable, IDerampStorage {
         address token
     ) external view returns (uint256) {
         return serviceFeeBalances[token];
+    }
+
+    function setDefaultFeePercent(
+        uint256 feePercent
+    ) external onlyAuthorizedModule {
+        defaultFeePercent = feePercent;
+    }
+
+    function setCommerceFee(
+        address commerce,
+        uint256 feePercent
+    ) external onlyAuthorizedModule {
+        commerceFees[commerce] = feePercent;
     }
 
     // === INFRASTRUCTURE / MODULES / OWNER FUNCTIONS ===

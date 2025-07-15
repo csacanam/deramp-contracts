@@ -57,15 +57,6 @@ interface IWithdrawalManager {
             address[] memory tokens
         );
 
-    // Internal functions for recording withdrawals
-    function recordWithdrawal(
-        address token,
-        uint256 amount,
-        address to,
-        IDerampStorage.WithdrawalType withdrawalType,
-        bytes32 invoiceId
-    ) external;
-
     function getWithdrawalHistory()
         external
         view

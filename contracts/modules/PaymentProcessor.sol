@@ -1,6 +1,27 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+/**
+ * @title PaymentProcessor
+ * @notice Handles all payment processing and balance management for the Deramp system.
+ *
+ * @dev Responsibilities:
+ * - Processes invoice payments and updates balances.
+ * - Handles service fee calculations and distributions.
+ * - Exposes queries for balances and service fees.
+ *
+ * Upgradeability:
+ * - All payment logic should reside here for easy upgrades.
+ * - Only the proxy or authorized modules should interact with this contract.
+ *
+ * Security:
+ * - Enforces access control for payment processing.
+ * - Only the proxy or authorized users can process payments.
+ *
+ * Recommendations:
+ * - Document all balance and fee calculations.
+ * - Keep payment logic isolated from unrelated business logic.
+ */
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";

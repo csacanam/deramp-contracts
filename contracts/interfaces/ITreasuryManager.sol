@@ -61,20 +61,6 @@ interface ITreasuryManager {
         uint256 limit
     ) external view returns (IDerampStorage.WithdrawalRecord[] memory);
 
-    // Treasury-specific withdrawal queries
-    function getTreasuryWithdrawalIndices(
-        address treasuryWallet
-    ) external view returns (uint256[] memory);
-
-    function getTreasuryWithdrawals(
-        address treasuryWallet
-    ) external view returns (IDerampStorage.WithdrawalRecord[] memory);
-
-    function getRecentTreasuryWithdrawals(
-        address treasuryWallet,
-        uint256 limit
-    ) external view returns (IDerampStorage.WithdrawalRecord[] memory);
-
     // Treasury statistics
     function getServiceFeeWithdrawalStats()
         external

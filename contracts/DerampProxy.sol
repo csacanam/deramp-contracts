@@ -1,6 +1,31 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+/**
+ * @title DerampProxy
+ * @notice Main entry point for the Deramp modular smart contract system.
+ *
+ * @dev Responsibilities:
+ * - Exposes a unified API for all business logic modules (managers).
+ * - Delegates calls to the appropriate manager contract (AccessManager, InvoiceManager, PaymentProcessor, WithdrawalManager, TreasuryManager, YieldManager).
+ * - Handles module upgrades via setter functions (setXManager).
+ * - Enforces access control and pausing at the proxy level.
+ *
+ * Upgradeability:
+ * - The proxy is designed to be upgradeable by swapping manager addresses.
+ * - All business logic should reside in the managers, not in the proxy.
+ * - The proxy should remain as thin as possible for security and maintainability.
+ *
+ * Security:
+ * - Only the owner can upgrade modules or pause/unpause the system.
+ * - All critical actions are protected by role-based access control.
+ * - The proxy should never hold user funds directly; all balances are managed in the storage contract.
+ *
+ * Recommendations:
+ * - When adding new modules, follow the same delegation pattern.
+ * - Keep the proxy free of business logic.
+ * - Document all new manager integrations clearly.
+ */
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -10,6 +35,7 @@ import "./interfaces/IInvoiceManager.sol";
 import "./interfaces/IPaymentProcessor.sol";
 import "./interfaces/IWithdrawalManager.sol";
 import "./interfaces/ITreasuryManager.sol";
+import "./interfaces/IYieldManager.sol";
 
 contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
     // Module contracts
@@ -19,6 +45,7 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
     address public paymentProcessor;
     address public withdrawalManager;
     address public treasuryManager;
+    address public yieldManager;
 
     // Emergency controls
     event Emergency(string reason);
@@ -151,6 +178,11 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         treasuryManager = _treasuryManager;
     }
 
+    function setYieldManager(address _yieldManager) external onlyOwner {
+        emit ModuleUpdated("yieldManager", yieldManager, _yieldManager);
+        yieldManager = _yieldManager;
+    }
+
     // === EMERGENCY CONTROLS ===
     function pause() external onlyOwner {
         _pause();
@@ -215,6 +247,44 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         );
     }
 
+    // Per-commerce token whitelist (delegates to AccessManager)
+    function addTokenToCommerceWhitelist(
+        address commerce,
+        address[] calldata tokens
+    ) external onlyOnboardingOrAdmin whenNotPaused {
+        _delegateToAccessManager(
+            abi.encodeWithSignature(
+                "addTokenToCommerceWhitelist(address,address[])",
+                commerce,
+                tokens
+            )
+        );
+    }
+
+    function removeTokenFromCommerceWhitelist(
+        address commerce,
+        address[] calldata tokens
+    ) external onlyOnboardingOrAdmin whenNotPaused {
+        _delegateToAccessManager(
+            abi.encodeWithSignature(
+                "removeTokenFromCommerceWhitelist(address,address[])",
+                commerce,
+                tokens
+            )
+        );
+    }
+
+    function isTokenWhitelistedForCommerce(
+        address commerce,
+        address token
+    ) external view returns (bool) {
+        return
+            IAccessManager(accessManager).isTokenWhitelistedForCommerce(
+                commerce,
+                token
+            );
+    }
+
     // Fee management
     function setDefaultFeePercent(
         uint256 feePercent
@@ -233,78 +303,6 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
                 "setCommerceFee(address,uint256)",
                 commerce,
                 feePercent
-            )
-        );
-    }
-
-    // Treasury management
-    function addTreasuryWallet(
-        address wallet,
-        string calldata description
-    ) external onlyTreasuryManagerOrAdmin whenNotPaused {
-        _delegateToTreasuryManager(
-            abi.encodeWithSignature(
-                "addTreasuryWallet(address,string)",
-                wallet,
-                description
-            )
-        );
-    }
-
-    function removeTreasuryWallet(
-        address wallet
-    ) external onlyTreasuryManagerOrAdmin whenNotPaused {
-        _delegateToTreasuryManager(
-            abi.encodeWithSignature("removeTreasuryWallet(address)", wallet)
-        );
-    }
-
-    function setTreasuryWalletStatus(
-        address wallet,
-        bool isActive
-    ) external onlyTreasuryManagerOrAdmin whenNotPaused {
-        _delegateToTreasuryManager(
-            abi.encodeWithSignature(
-                "setTreasuryWalletStatus(address,bool)",
-                wallet,
-                isActive
-            )
-        );
-    }
-
-    function withdrawServiceFeesToTreasury(
-        address token,
-        address to
-    ) external onlyTreasuryManagerOrAdmin whenNotPaused {
-        _delegateToTreasuryManager(
-            abi.encodeWithSignature(
-                "withdrawServiceFeesToTreasury(address,address)",
-                token,
-                to
-            )
-        );
-    }
-
-    function withdrawServiceFeesToTreasury(
-        address[] calldata tokens,
-        address to
-    ) external onlyTreasuryManagerOrAdmin whenNotPaused {
-        _delegateToTreasuryManager(
-            abi.encodeWithSignature(
-                "withdrawServiceFeesToTreasury(address[],address)",
-                tokens,
-                to
-            )
-        );
-    }
-
-    function withdrawAllServiceFeesToTreasury(
-        address to
-    ) external onlyTreasuryManagerOrAdmin whenNotPaused {
-        _delegateToTreasuryManager(
-            abi.encodeWithSignature(
-                "withdrawAllServiceFeesToTreasury(address)",
-                to
             )
         );
     }
@@ -595,6 +593,43 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
             );
     }
 
+    function getCommerceWithdrawalIndices(
+        address commerce
+    ) external view returns (uint256[] memory) {
+        return
+            IWithdrawalManager(withdrawalManager).getCommerceWithdrawalIndices(
+                commerce
+            );
+    }
+
+    function getRecentCommerceWithdrawals(
+        address commerce,
+        uint256 limit
+    ) external view returns (IDerampStorage.WithdrawalRecord[] memory) {
+        return
+            IWithdrawalManager(withdrawalManager).getRecentCommerceWithdrawals(
+                commerce,
+                limit
+            );
+    }
+
+    function getCommerceWithdrawalStats(
+        address commerce
+    )
+        external
+        view
+        returns (
+            uint256 totalWithdrawals,
+            uint256[] memory totalAmountByToken,
+            address[] memory tokens
+        )
+    {
+        return
+            IWithdrawalManager(withdrawalManager).getCommerceWithdrawalStats(
+                commerce
+            );
+    }
+
     function getWithdrawalHistory()
         external
         view
@@ -655,12 +690,130 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
             );
     }
 
+    function getCommerceBalance(
+        address commerce,
+        address token
+    ) external view returns (uint256 balance) {
+        (bool success, bytes memory data) = withdrawalManager.staticcall(
+            abi.encodeWithSignature(
+                "getCommerceBalance(address,address)",
+                commerce,
+                token
+            )
+        );
+        require(success, "getCommerceBalance call failed");
+        balance = abi.decode(data, (uint256));
+    }
+
+    function getCommerceBalances(
+        address commerce,
+        address[] calldata tokens
+    ) external view returns (uint256[] memory balances) {
+        (bool success, bytes memory data) = withdrawalManager.staticcall(
+            abi.encodeWithSignature(
+                "getCommerceBalances(address,address[])",
+                commerce,
+                tokens
+            )
+        );
+        require(success, "getCommerceBalances call failed");
+        balances = abi.decode(data, (uint256[]));
+    }
+
     // === TREASURY MANAGER FUNCTIONS ===
+
+    function addTreasuryWallet(
+        address wallet,
+        string calldata description
+    ) external onlyAdmin whenNotPaused {
+        _delegateToTreasuryManager(
+            abi.encodeWithSignature(
+                "addTreasuryWallet(address,string)",
+                wallet,
+                description
+            )
+        );
+    }
+
+    function removeTreasuryWallet(
+        address wallet
+    ) external onlyAdmin whenNotPaused {
+        _delegateToTreasuryManager(
+            abi.encodeWithSignature("removeTreasuryWallet(address)", wallet)
+        );
+    }
+
+    function setTreasuryWalletStatus(
+        address wallet,
+        bool isActive
+    ) external onlyAdmin whenNotPaused {
+        _delegateToTreasuryManager(
+            abi.encodeWithSignature(
+                "setTreasuryWalletStatus(address,bool)",
+                wallet,
+                isActive
+            )
+        );
+    }
+
+    function updateTreasuryWallet(
+        address wallet,
+        IDerampStorage.TreasuryWallet calldata updatedWallet
+    ) external onlyAdmin whenNotPaused {
+        _delegateToTreasuryManager(
+            abi.encodeWithSignature(
+                "updateTreasuryWallet(address,(address,bool,uint256,string))",
+                wallet,
+                updatedWallet
+            )
+        );
+    }
+
+    function withdrawServiceFeesToTreasury(
+        address token,
+        address to
+    ) external onlyTreasuryManagerOrAdmin whenNotPaused {
+        _delegateToTreasuryManager(
+            abi.encodeWithSignature(
+                "withdrawServiceFeesToTreasury(address,address)",
+                token,
+                to
+            )
+        );
+    }
+
+    function withdrawAllServiceFeesToTreasury(
+        address[] calldata tokens,
+        address to
+    ) external onlyTreasuryManagerOrAdmin whenNotPaused {
+        _delegateToTreasuryManager(
+            abi.encodeWithSignature(
+                "withdrawAllServiceFeesToTreasury(address[],address)",
+                tokens,
+                to
+            )
+        );
+    }
+
+    function withdrawAllServiceFeesToTreasury(
+        address to
+    ) external onlyTreasuryManagerOrAdmin whenNotPaused {
+        _delegateToTreasuryManager(
+            abi.encodeWithSignature(
+                "withdrawAllServiceFeesToTreasury(address)",
+                to
+            )
+        );
+    }
 
     function getTreasuryWallet(
         address wallet
     ) external view returns (IDerampStorage.TreasuryWallet memory) {
         return ITreasuryManager(treasuryManager).getTreasuryWallet(wallet);
+    }
+
+    function getAllTreasuryWallets() external view returns (address[] memory) {
+        return ITreasuryManager(treasuryManager).getAllTreasuryWallets();
     }
 
     function getActiveTreasuryWallets()
@@ -671,20 +824,45 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         return ITreasuryManager(treasuryManager).getActiveTreasuryWallets();
     }
 
-    function updateTreasuryWallet(
-        address wallet,
-        IDerampStorage.TreasuryWallet calldata updatedWallet
-    ) external onlyTreasuryManagerOrAdmin whenNotPaused {
-        _delegateToTreasuryManager(
-            abi.encodeWithSignature(
-                "updateTreasuryWallet(address,(address,bool,uint256,string))",
-                wallet,
-                updatedWallet
-            )
-        );
+    function isTreasuryWalletActive(
+        address wallet
+    ) external view returns (bool) {
+        return ITreasuryManager(treasuryManager).isTreasuryWalletActive(wallet);
     }
 
-    // === TREASURY ANALYTICS FUNCTIONS ===
+    function getTreasuryWallets()
+        external
+        view
+        returns (IDerampStorage.TreasuryWallet[] memory)
+    {
+        return ITreasuryManager(treasuryManager).getTreasuryWallets();
+    }
+
+    function getServiceFeeWithdrawalIndices()
+        external
+        view
+        returns (uint256[] memory)
+    {
+        return
+            ITreasuryManager(treasuryManager).getServiceFeeWithdrawalIndices();
+    }
+
+    function getServiceFeeWithdrawals()
+        external
+        view
+        returns (IDerampStorage.WithdrawalRecord[] memory)
+    {
+        return ITreasuryManager(treasuryManager).getServiceFeeWithdrawals();
+    }
+
+    function getRecentServiceFeeWithdrawals(
+        uint256 limit
+    ) external view returns (IDerampStorage.WithdrawalRecord[] memory) {
+        return
+            ITreasuryManager(treasuryManager).getRecentServiceFeeWithdrawals(
+                limit
+            );
+    }
 
     function getServiceFeeWithdrawalStats()
         external
@@ -700,42 +878,71 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         return ITreasuryManager(treasuryManager).getServiceFeeWithdrawalStats();
     }
 
-    // === PER-COMMERCE TOKEN WHITELIST MANAGEMENT ===
-    function addTokenToCommerceWhitelist(
-        address commerce,
-        address[] calldata tokens
-    ) external onlyOnboardingOrAdmin whenNotPaused {
-        _delegateToAccessManager(
+    // === YIELD MANAGER FUNCTIONS ===
+    /**
+     * @notice Returns the principal (deposited amount) in yield for the caller and token.
+     */
+    function getYieldPrincipal(address token) external view returns (uint256) {
+        if (yieldManager == address(0)) return 0;
+        return IYieldManager(yieldManager).getYieldPrincipal(msg.sender, token);
+    }
+
+    /**
+     * @notice Returns the yield (interest) earned for the caller and token.
+     */
+    function getYieldEarned(address token) external view returns (uint256) {
+        if (yieldManager == address(0)) return 0;
+        return IYieldManager(yieldManager).getYieldEarned(msg.sender, token);
+    }
+
+    /**
+     * @notice Returns the total balance in yield (principal + interest) for the caller and token.
+     */
+    function getYieldBalance(address token) external view returns (uint256) {
+        if (yieldManager == address(0)) return 0;
+        return IYieldManager(yieldManager).getYieldBalance(msg.sender, token);
+    }
+
+    /**
+     * @notice Returns the current APY for a given token.
+     */
+    function getAPY(address token) external view returns (uint256) {
+        if (yieldManager == address(0)) return 0;
+        return IYieldManager(yieldManager).getAPY(token);
+    }
+
+    /**
+     * @notice Deposit tokens from the caller into yield.
+     */
+    function depositToYield(
+        address token,
+        uint256 amount
+    ) external onlyRegisteredCommerce whenNotPaused {
+        _delegateToYieldManager(
             abi.encodeWithSignature(
-                "addTokenToCommerceWhitelist(address,address[])",
-                commerce,
-                tokens
+                "depositToYield(address,address,uint256)",
+                msg.sender,
+                token,
+                amount
             )
         );
     }
 
-    function removeTokenFromCommerceWhitelist(
-        address commerce,
-        address[] calldata tokens
-    ) external onlyOnboardingOrAdmin whenNotPaused {
-        _delegateToAccessManager(
+    /**
+     * @notice Withdraw tokens from yield back to the caller's available balance.
+     */
+    function withdrawFromYield(
+        address token,
+        uint256 amount
+    ) external onlyRegisteredCommerce whenNotPaused {
+        _delegateToYieldManager(
             abi.encodeWithSignature(
-                "removeTokenFromCommerceWhitelist(address,address[])",
-                commerce,
-                tokens
+                "withdrawFromYield(address,address,uint256)",
+                msg.sender,
+                token,
+                amount
             )
         );
-    }
-
-    function isTokenWhitelistedForCommerce(
-        address commerce,
-        address token
-    ) external view returns (bool) {
-        return
-            IAccessManager(accessManager).isTokenWhitelistedForCommerce(
-                commerce,
-                token
-            );
     }
 
     // === COMPATIBILITY FUNCTIONS ===
@@ -781,24 +988,10 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         require(success, "TreasuryManager call failed");
     }
 
-    // === RESCUE FUNCTIONS ===
-
-    function rescueToken(
-        address token,
-        uint256 amount,
-        address to
-    ) external onlyOwner {
-        // Delegate to storage contract for balance validation
-        require(storageContract != address(0), "Storage not set");
-        (bool success, ) = storageContract.call(
-            abi.encodeWithSignature(
-                "rescueToken(address,uint256,address)",
-                token,
-                amount,
-                to
-            )
-        );
-        require(success, "Token rescue failed");
+    function _delegateToYieldManager(bytes memory data) internal {
+        require(yieldManager != address(0), "YieldManager not set");
+        (bool success, ) = yieldManager.delegatecall(data);
+        require(success, "YieldManager call failed");
     }
 
     // === FALLBACK ===

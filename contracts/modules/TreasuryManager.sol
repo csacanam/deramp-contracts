@@ -1,6 +1,27 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+/**
+ * @title TreasuryManager
+ * @notice Handles treasury wallet management and service fee withdrawals for the Deramp system.
+ *
+ * @dev Responsibilities:
+ * - Manages treasury wallets (add, remove, update, status).
+ * - Handles service fee withdrawals and statistics.
+ * - Exposes queries for treasury wallets and service fee analytics.
+ *
+ * Upgradeability:
+ * - All treasury logic should reside here for easy upgrades.
+ * - Only the proxy or authorized modules should interact with this contract.
+ *
+ * Security:
+ * - Enforces access control for treasury actions.
+ * - Only the proxy or authorized users can manage treasury wallets and fees.
+ *
+ * Recommendations:
+ * - Document all treasury wallet operations and service fee flows.
+ * - Keep treasury logic isolated from unrelated business logic.
+ */
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
@@ -14,9 +35,6 @@ contract TreasuryManager is Pausable, ITreasuryManager {
     IDerampStorage public immutable storageContract;
     IAccessManager public immutable accessManager;
     address public immutable proxy;
-
-    bytes32 public constant TREASURY_MANAGER_ROLE =
-        keccak256("TREASURY_MANAGER_ROLE");
 
     modifier onlyProxy() {
         require(msg.sender == proxy, "Only proxy can call");
@@ -81,6 +99,11 @@ contract TreasuryManager is Pausable, ITreasuryManager {
         address token,
         address to
     ) external onlyProxy {
+        require(to != address(0), "Invalid treasury address");
+        require(
+            storageContract.getTreasuryWallet(to).isActive,
+            "Treasury wallet not active"
+        );
         uint256 amount = storageContract.getServiceFeeBalance(token);
         require(amount > 0, "No service fees to withdraw");
 
@@ -94,6 +117,11 @@ contract TreasuryManager is Pausable, ITreasuryManager {
         address[] calldata tokens,
         address to
     ) external onlyProxy {
+        require(to != address(0), "Invalid treasury address");
+        require(
+            storageContract.getTreasuryWallet(to).isActive,
+            "Treasury wallet not active"
+        );
         require(tokens.length > 0, "No tokens provided");
         uint256 totalWithdrawn = 0;
 
@@ -117,25 +145,25 @@ contract TreasuryManager is Pausable, ITreasuryManager {
             "Treasury wallet not active"
         );
 
-        // Get tokens with service fees
-        address[] memory serviceFeeTokens = storageContract
-            .getServiceFeeTokens();
-        require(serviceFeeTokens.length > 0, "No tokens with service fees");
+        // Get all whitelisted tokens
+        address[] memory whitelistedTokens = storageContract
+            .getWhitelistedTokens();
+        require(whitelistedTokens.length > 0, "No whitelisted tokens");
 
         uint256 totalWithdrawn = 0;
 
-        for (uint256 i = 0; i < serviceFeeTokens.length; i++) {
+        for (uint256 i = 0; i < whitelistedTokens.length; i++) {
             uint256 amount = storageContract.getServiceFeeBalance(
-                serviceFeeTokens[i]
+                whitelistedTokens[i]
             );
             if (amount > 0) {
                 storageContract.subtractServiceFeeBalance(
-                    serviceFeeTokens[i],
+                    whitelistedTokens[i],
                     amount
                 );
-                IERC20(serviceFeeTokens[i]).safeTransfer(to, amount);
+                IERC20(whitelistedTokens[i]).safeTransfer(to, amount);
                 emit IDerampStorage.ServiceFeeWithdrawn(
-                    serviceFeeTokens[i],
+                    whitelistedTokens[i],
                     amount,
                     to
                 );
@@ -264,61 +292,16 @@ contract TreasuryManager is Pausable, ITreasuryManager {
         return result;
     }
 
-    function getTreasuryWithdrawalIndices(
-        address treasuryWallet
-    ) external view returns (uint256[] memory) {
-        return storageContract.getTreasuryWithdrawals(treasuryWallet);
-    }
-
-    function getTreasuryWithdrawals(
-        address treasuryWallet
-    ) external view returns (IDerampStorage.WithdrawalRecord[] memory) {
-        uint256[] memory indices = storageContract.getTreasuryWithdrawals(
-            treasuryWallet
-        );
-        IDerampStorage.WithdrawalRecord[] memory history = storageContract
-            .getWithdrawalHistory();
-        IDerampStorage.WithdrawalRecord[]
-            memory result = new IDerampStorage.WithdrawalRecord[](
-                indices.length
-            );
-
-        for (uint256 i = 0; i < indices.length; i++) {
-            result[i] = history[indices[i]];
-        }
-
-        return result;
-    }
-
-    function getRecentTreasuryWithdrawals(
-        address treasuryWallet,
-        uint256 limit
-    ) external view returns (IDerampStorage.WithdrawalRecord[] memory) {
-        uint256[] memory indices = storageContract.getTreasuryWithdrawals(
-            treasuryWallet
-        );
-        uint256 totalWithdrawals = indices.length;
-
-        if (totalWithdrawals == 0) {
-            return new IDerampStorage.WithdrawalRecord[](0);
-        }
-
-        uint256 resultSize = limit > totalWithdrawals
-            ? totalWithdrawals
-            : limit;
-        IDerampStorage.WithdrawalRecord[]
-            memory result = new IDerampStorage.WithdrawalRecord[](resultSize);
-        IDerampStorage.WithdrawalRecord[] memory history = storageContract
-            .getWithdrawalHistory();
-
-        for (uint256 i = 0; i < resultSize; i++) {
-            uint256 withdrawalIndex = indices[totalWithdrawals - 1 - i];
-            result[i] = history[withdrawalIndex];
-        }
-
-        return result;
-    }
-
+    /**
+     * @notice Returns general statistics for service fee (treasury) withdrawals.
+     * @dev The return format is designed to be easily consumed by the frontend.
+     * @return totalWithdrawals Total number of service fee withdrawals performed.
+     * @return totalAmountByToken Array parallel to 'tokens', where each element is the total withdrawn for that token.
+     * @return tokens Array of unique token addresses withdrawn.
+     * @return treasuryWalletList Array of unique wallet addresses that received withdrawals.
+     * @return amountsByTreasury Matrix [wallet][token]:
+     *         - amountsByTreasury[i][j] is the total withdrawn by treasuryWalletList[i] for token tokens[j].
+     */
     function getServiceFeeWithdrawalStats()
         external
         view
@@ -332,11 +315,87 @@ contract TreasuryManager is Pausable, ITreasuryManager {
     {
         uint256[] memory indices = storageContract.getServiceFeeWithdrawals();
         totalWithdrawals = indices.length;
-
-        // Simplified implementation - return empty arrays for complex analytics
-        tokens = new address[](0);
-        totalAmountByToken = new uint256[](0);
-        treasuryWalletList = new address[](0);
-        amountsByTreasury = new uint256[][](0);
+        if (totalWithdrawals == 0) {
+            return (
+                0,
+                new uint256[](0),
+                new address[](0),
+                new address[](0),
+                new uint256[][](0)
+            );
+        }
+        // Temporary arrays for unique tokens and wallets
+        address[] memory tempTokens = new address[](totalWithdrawals);
+        uint256 tokenCount = 0;
+        address[] memory tempWallets = new address[](totalWithdrawals);
+        uint256 walletCount = 0;
+        // Discover unique tokens and wallets
+        for (uint256 i = 0; i < totalWithdrawals; i++) {
+            IDerampStorage.WithdrawalRecord memory w = storageContract
+                .getWithdrawalHistory()[indices[i]];
+            // Unique token
+            bool tokenExists = false;
+            for (uint256 t = 0; t < tokenCount; t++) {
+                if (tempTokens[t] == w.token) {
+                    tokenExists = true;
+                    break;
+                }
+            }
+            if (!tokenExists) {
+                tempTokens[tokenCount] = w.token;
+                tokenCount++;
+            }
+            // Unique wallet
+            bool walletExists = false;
+            for (uint256 widx = 0; widx < walletCount; widx++) {
+                if (tempWallets[widx] == w.to) {
+                    walletExists = true;
+                    break;
+                }
+            }
+            if (!walletExists) {
+                tempWallets[walletCount] = w.to;
+                walletCount++;
+            }
+        }
+        // Copy to final arrays
+        tokens = new address[](tokenCount);
+        for (uint256 i = 0; i < tokenCount; i++) {
+            tokens[i] = tempTokens[i];
+        }
+        treasuryWalletList = new address[](walletCount);
+        for (uint256 i = 0; i < walletCount; i++) {
+            treasuryWalletList[i] = tempWallets[i];
+        }
+        // Initialize accumulators
+        totalAmountByToken = new uint256[](tokenCount);
+        amountsByTreasury = new uint256[][](walletCount);
+        for (uint256 i = 0; i < walletCount; i++) {
+            amountsByTreasury[i] = new uint256[](tokenCount);
+        }
+        // Accumulate amounts
+        for (uint256 i = 0; i < totalWithdrawals; i++) {
+            IDerampStorage.WithdrawalRecord memory w = storageContract
+                .getWithdrawalHistory()[indices[i]];
+            // Find token index
+            uint256 tIdx = 0;
+            for (; tIdx < tokenCount; tIdx++) {
+                if (tokens[tIdx] == w.token) break;
+            }
+            // Find wallet index
+            uint256 wIdx = 0;
+            for (; wIdx < walletCount; wIdx++) {
+                if (treasuryWalletList[wIdx] == w.to) break;
+            }
+            totalAmountByToken[tIdx] += w.amount;
+            amountsByTreasury[wIdx][tIdx] += w.amount;
+        }
+        return (
+            totalWithdrawals,
+            totalAmountByToken,
+            tokens,
+            treasuryWalletList,
+            amountsByTreasury
+        );
     }
 }

@@ -1,6 +1,27 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+/**
+ * @title AccessManager
+ * @notice Handles all role-based access control and whitelisting for the Deramp system.
+ *
+ * @dev Responsibilities:
+ * - Manages roles (admin, onboarding, token manager, treasury manager, backend operator).
+ * - Handles token and commerce whitelisting.
+ * - Exposes functions for role assignment, revocation, and permission checks.
+ *
+ * Upgradeability:
+ * - All access control logic should reside here for easy upgrades.
+ * - Only the proxy or authorized modules should interact with this contract.
+ *
+ * Security:
+ * - Enforces strict role checks for all sensitive actions.
+ * - Only the proxy or owner can grant/revoke roles.
+ *
+ * Recommendations:
+ * - Document all roles and their intended use.
+ * - Keep access control logic isolated from business logic.
+ */
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "../interfaces/IAccessManager.sol";
 import "../interfaces/IDerampStorage.sol";

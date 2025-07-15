@@ -225,8 +225,6 @@ interface IDerampStorage {
 
     function addCommerceWithdrawal(address commerce, uint256 index) external;
 
-    function addTreasuryWithdrawal(address treasury, uint256 index) external;
-
     function addServiceFeeWithdrawal(uint256 index) external;
 
     function getWithdrawalHistory()
@@ -236,10 +234,6 @@ interface IDerampStorage {
 
     function getCommerceWithdrawals(
         address commerce
-    ) external view returns (uint256[] memory);
-
-    function getTreasuryWithdrawals(
-        address treasury
     ) external view returns (uint256[] memory);
 
     function getServiceFeeWithdrawals()

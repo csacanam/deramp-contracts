@@ -1,6 +1,27 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+/**
+ * @title InvoiceManager
+ * @notice Handles invoice creation, management, and queries for the Deramp system.
+ *
+ * @dev Responsibilities:
+ * - Manages invoice lifecycle (creation, payment, cancellation, status updates).
+ * - Handles payment options and invoice metadata.
+ * - Exposes queries for invoices by commerce, status, and date.
+ *
+ * Upgradeability:
+ * - All invoice logic should reside here for easy upgrades.
+ * - Only the proxy or authorized modules should interact with this contract.
+ *
+ * Security:
+ * - Enforces access control for invoice creation and updates.
+ * - Only the proxy or authorized users can create/cancel invoices.
+ *
+ * Recommendations:
+ * - Document all invoice fields and their intended use.
+ * - Keep invoice logic isolated from unrelated business logic.
+ */
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "../interfaces/IInvoiceManager.sol";
 import "../interfaces/IAccessManager.sol";
