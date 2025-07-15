@@ -13,7 +13,7 @@
 
 ## Overview
 
-The Deramp Smart Contract System is a modular, proxy-based architecture designed for secure and efficient payment processing, invoice management, and treasury operations. The system follows a microservices-like approach where each module handles specific business logic while maintaining data consistency through a centralized storage layer.
+The Deramp Smart Contract System is a modular, proxy-based architecture designed for secure and efficient payment processing, invoice management, treasury operations, and yield farming. The system follows a microservices-like approach where each module handles specific business logic while maintaining data consistency through a centralized storage layer.
 
 ### Key Features
 
@@ -22,6 +22,7 @@ The Deramp Smart Contract System is a modular, proxy-based architecture designed
 - **Role-Based Access Control**: Granular permissions system
 - **Upgradeable Architecture**: Modules can be updated without data loss
 - **Event-Driven**: Comprehensive logging and monitoring
+- **Yield Integration**: Built-in support for DeFi yield farming
 
 ## Architectural Principles
 
@@ -34,6 +35,7 @@ Each module has a single, well-defined responsibility:
 - **PaymentProcessor**: Payment processing and refunds
 - **WithdrawalManager**: Balance withdrawals and analytics
 - **TreasuryManager**: Treasury operations and fee distribution
+- **YieldManager**: Yield farming and interest management
 
 ### 2. Single Point of Entry
 
@@ -63,6 +65,8 @@ The system defaults to restrictive permissions and requires explicit authorizati
   - Delegates function calls to appropriate modules
   - Maintains module addresses
   - Provides unified interface for external interactions
+  - Handles emergency controls (pause/unpause)
+  - Enforces access control at proxy level
 
 #### DerampStorage
 
@@ -72,6 +76,7 @@ The system defaults to restrictive permissions and requires explicit authorizati
   - Stores all system data (invoices, balances, configurations)
   - Implements access control for data modifications
   - Provides atomic operations
+  - Manages module authorization
 
 ### Business Logic Modules
 
@@ -83,6 +88,7 @@ The system defaults to restrictive permissions and requires explicit authorizati
   - Role-based access control (RBAC)
   - Token and commerce whitelisting
   - Fee configuration management
+  - Role hierarchy management
 
 #### InvoiceManager
 
@@ -92,6 +98,7 @@ The system defaults to restrictive permissions and requires explicit authorizati
   - Invoice creation and management
   - Payment option configuration
   - Invoice status tracking
+  - Commerce-specific invoice queries
 
 #### PaymentProcessor
 
@@ -101,6 +108,7 @@ The system defaults to restrictive permissions and requires explicit authorizati
   - Invoice payment processing
   - Fee calculation and distribution
   - Refund processing
+  - Balance management
 
 #### WithdrawalManager
 
@@ -110,6 +118,7 @@ The system defaults to restrictive permissions and requires explicit authorizati
   - Commerce balance withdrawals
   - Withdrawal analytics and reporting
   - Balance verification
+  - Multi-token withdrawal support
 
 #### TreasuryManager
 
@@ -119,6 +128,17 @@ The system defaults to restrictive permissions and requires explicit authorizati
   - Service fee management
   - Treasury wallet management
   - Fee distribution to multiple wallets
+  - Treasury withdrawal controls
+
+#### YieldManager
+
+- **Purpose**: Yield farming and interest management
+- **Pattern**: Strategy pattern
+- **Key Features**:
+  - DeFi protocol integration (Aave, Compound, etc.)
+  - Yield principal and interest tracking
+  - APY calculation and reporting
+  - Proportional yield distribution
 
 ## UML Diagrams
 
@@ -143,6 +163,7 @@ graph TB
             PaymentProc[PaymentProcessor<br/>Payment Processing]
             WithdrawalMgr[WithdrawalManager<br/>Withdrawal Management]
             TreasuryMgr[TreasuryManager<br/>Treasury Operations]
+            YieldMgr[YieldManager<br/>Yield Farming]
         end
 
         subgraph "Data Layer"
@@ -155,6 +176,7 @@ graph TB
             IPaymentProc[IPaymentProcessor]
             IWithdrawalMgr[IWithdrawalManager]
             ITreasuryMgr[ITreasuryManager]
+            IYieldMgr[IYieldManager]
             IStorage[IDerampStorage]
         end
     end
@@ -163,6 +185,7 @@ graph TB
     subgraph "External Systems"
         ERC20[ERC20 Tokens<br/>USDC, USDT, etc.]
         Wallets[External Wallets]
+        DeFi[DeFi Protocols<br/>Aave, Compound, etc.]
     end
 
     %% Connections
@@ -175,23 +198,28 @@ graph TB
     Proxy -.->|delegatecall| PaymentProc
     Proxy -.->|delegatecall| WithdrawalMgr
     Proxy -.->|delegatecall| TreasuryMgr
+    Proxy -.->|delegatecall| YieldMgr
 
     AccessMgr --> Storage
     InvoiceMgr --> Storage
     PaymentProc --> Storage
     WithdrawalMgr --> Storage
     TreasuryMgr --> Storage
+    YieldMgr --> Storage
 
     AccessMgr -.-> IAccessMgr
     InvoiceMgr -.-> IInvoiceMgr
     PaymentProc -.-> IPaymentProc
     WithdrawalMgr -.-> IWithdrawalMgr
     TreasuryMgr -.-> ITreasuryMgr
+    YieldMgr -.-> IYieldMgr
     Storage -.-> IStorage
 
     PaymentProc --> ERC20
     WithdrawalMgr --> ERC20
     TreasuryMgr --> ERC20
+    YieldMgr --> ERC20
+    YieldMgr --> DeFi
     WithdrawalMgr --> Wallets
     TreasuryMgr --> Wallets
 ```
@@ -222,6 +250,16 @@ classDiagram
         +setWhitelistedCommerce(address, bool)
     }
 
+    class IYieldManager {
+        <<interface>>
+        +depositToYield(address, address, uint256)
+        +withdrawFromYield(address, address, uint256)
+        +getYieldPrincipal(address, address) uint256
+        +getYieldEarned(address, address) uint256
+        +getYieldBalance(address, address) uint256
+        +getAPY(address) uint256
+    }
+
     %% Main Proxy
     class DerampProxy {
         -address storageContract
@@ -230,17 +268,23 @@ classDiagram
         -address paymentProcessor
         -address withdrawalManager
         -address treasuryManager
-        +constructor(address)
+        -address yieldManager
+        +constructor()
         +grantRole(bytes32, address)
         +createInvoice(bytes32, address, PaymentOption[], uint256)
         +payInvoice(bytes32, address, uint256)
         +withdrawBalance(address, uint256)
+        +depositToYield(address, address, uint256)
+        +withdrawFromYield(address, address, uint256)
+        +pause()
+        +unpause()
 
         -_delegateToAccessManager(bytes)
         -_delegateToInvoiceManager(bytes)
         -_delegateToPaymentProcessor(bytes)
         -_delegateToWithdrawalManager(bytes)
         -_delegateToTreasuryManager(bytes)
+        -_delegateToYieldManager(bytes)
     }
 
     %% Storage
@@ -268,6 +312,7 @@ classDiagram
         -bytes32 ONBOARDING_ROLE
         -bytes32 TOKEN_MANAGER_ROLE
         -bytes32 TREASURY_MANAGER_ROLE
+        -bytes32 BACKEND_OPERATOR_ROLE
         +constructor(address)
         +grantRole(bytes32, address)
         +revokeRole(bytes32, address)
@@ -289,7 +334,6 @@ classDiagram
         +getInvoice(bytes32) Invoice
         +getInvoicesByCommerce(address) bytes32[]
         +getInvoicesByStatus(Status) bytes32[]
-        -onlyOwner()
     }
 
     class PaymentProcessor {
@@ -302,7 +346,6 @@ classDiagram
         +updateInvoicePayment(bytes32, address, address, uint256)
         +getBalance(address, address) uint256
         +deductCommerceBalance(address, address, uint256)
-        -onlyOwner()
     }
 
     class WithdrawalManager {
@@ -310,12 +353,11 @@ classDiagram
         -IAccessManager accessManager
         +constructor(address, address)
         +withdrawAllCommerceBalance(address)
-        +withdrawPartialCommerceBalance(address, uint256)
+        +withdrawSelectedTokens(address, address[])
+        +withdrawTo(address, address[], uint256[])
         +getCommerceWithdrawalStats(address) WithdrawalStats
         +getTotalWithdrawalsByToken(address) WithdrawalStats
         +getCommerceTokens(address) address[]
-        -onlyCommerce()
-        -onlyOwner()
     }
 
     class TreasuryManager {
@@ -326,9 +368,20 @@ classDiagram
         +addTreasuryWallet(address)
         +removeTreasuryWallet(address)
         +withdrawServiceFeesToTreasury(address, address)
-        +distributeFees(address)
+        +withdrawAllServiceFeesToTreasury(address[])
         +getTreasuryWallets() address[]
-        -onlyOwner()
+    }
+
+    class YieldManager {
+        -DerampStorage storageContract
+        -IAccessManager accessManager
+        +constructor(address, address)
+        +depositToYield(address, address, uint256)
+        +withdrawFromYield(address, address, uint256)
+        +getYieldPrincipal(address, address) uint256
+        +getYieldEarned(address, address) uint256
+        +getYieldBalance(address, address) uint256
+        +getAPY(address) uint256
     }
 
     %% OpenZeppelin Base
@@ -350,10 +403,12 @@ classDiagram
     DerampProxy --> PaymentProcessor : delegates to
     DerampProxy --> WithdrawalManager : delegates to
     DerampProxy --> TreasuryManager : delegates to
+    DerampProxy --> YieldManager : delegates to
 
     AccessManager --|> AccessControl : inherits
     AccessManager ..|> IAccessManager : implements
     DerampStorage ..|> IDerampStorage : implements
+    YieldManager ..|> IYieldManager : implements
 
     InvoiceManager --> DerampStorage : reads/writes
     InvoiceManager --> IAccessManager : uses for auth
@@ -363,6 +418,8 @@ classDiagram
     WithdrawalManager --> IAccessManager : uses for auth
     TreasuryManager --> DerampStorage : reads/writes
     TreasuryManager --> IAccessManager : uses for auth
+    YieldManager --> DerampStorage : reads/writes
+    YieldManager --> IAccessManager : uses for auth
 
     AccessManager --> DerampStorage : reads/writes
 ```

@@ -1,14 +1,14 @@
 # Deramp Smart Contracts
 
-> **Modular payment processing system for blockchain invoicing and treasury management**
+> **Modular payment processing system for blockchain invoicing, treasury management, and yield farming**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Hardhat](https://img.shields.io/badge/Built%20with-Hardhat-FFDB1C.svg)](https://hardhat.org/)
-[![Solidity](https://img.shields.io/badge/Solidity-%5E0.8.19-363636)](https://soliditylang.org/)
+[![Solidity](https://img.shields.io/badge/Solidity-%5E0.8.20-363636)](https://soliditylang.org/)
 
 ## Overview
 
-Deramp is a production-ready, modular smart contract system designed for invoice management, payment processing, and treasury operations. Built with security, scalability, and maintainability in mind.
+Deramp is a production-ready, modular smart contract system designed for invoice management, payment processing, treasury operations, and yield farming. Built with security, scalability, and maintainability in mind.
 
 ### Key Features
 
@@ -18,6 +18,8 @@ Deramp is a production-ready, modular smart contract system designed for invoice
 - 🏦 **Treasury Management** - Automated fee collection and distribution
 - 📊 **Analytics & Reporting** - Comprehensive transaction tracking
 - ⚡ **Gas Optimized** - Efficient proxy pattern implementation
+- 🌱 **Yield Farming** - DeFi protocol integration for passive income
+- 🔄 **Upgradeable** - Module-based upgrades without data loss
 
 ## Quick Start
 
@@ -38,19 +40,6 @@ npm install
 
 # Compile contracts
 npx hardhat compile
-```
-
-### Testing
-
-```bash
-# Run all tests
-npm test
-
-# Run tests with gas reporting
-npm run test:gas
-
-# Run tests with coverage
-npm run test:coverage
 ```
 
 ### Deployment
@@ -79,6 +68,7 @@ npx hardhat run scripts/deploy.ts --network mainnet
 | **PaymentProcessor**  | Payment processing and refunds         | ~21KB |
 | **WithdrawalManager** | Balance withdrawals and analytics      | ~18KB |
 | **TreasuryManager**   | Treasury operations and fee management | ~20KB |
+| **YieldManager**      | Yield farming and interest management  | ~19KB |
 
 ### System Flow
 
@@ -121,6 +111,22 @@ IERC20(token).approve(address(derampProxy), amount);
 derampProxy.payInvoice(invoiceId, token, amount);
 ```
 
+### Yield Farming
+
+```solidity
+// Deposit tokens to earn yield
+address token = USDC_ADDRESS;
+uint256 amount = 1000 * 10**6;
+
+derampProxy.depositToYield(commerce, token, amount);
+
+// Check yield earned
+uint256 yieldEarned = derampProxy.getYieldEarned(commerce, token);
+
+// Withdraw from yield
+derampProxy.withdrawFromYield(commerce, token, amount);
+```
+
 ## Configuration
 
 ### Environment Setup
@@ -159,6 +165,7 @@ The system implements role-based access control with the following roles:
 - `TOKEN_MANAGER_ROLE` - Token whitelist management
 - `ONBOARDING_ROLE` - Commerce whitelist management
 - `TREASURY_MANAGER_ROLE` - Treasury operations
+- `BACKEND_OPERATOR_ROLE` - Backend operations and invoice management
 
 ### Security Features
 
@@ -167,6 +174,8 @@ The system implements role-based access control with the following roles:
 - ✅ Pausable operations
 - ✅ Input validation
 - ✅ Access control on all functions
+- ✅ Emergency controls
+- ✅ Yield security measures
 
 ### Audits
 
@@ -187,29 +196,6 @@ The system implements role-based access control with the following roles:
 - Add tests for new features
 - Update documentation as needed
 - Ensure all tests pass before submitting
-
-## Testing
-
-The project includes comprehensive test coverage:
-
-- **Unit Tests** - Individual contract testing
-- **Integration Tests** - Cross-module functionality
-- **End-to-End Tests** - Complete workflow validation
-
-Current test status: **90/112 tests passing (80% success rate)**
-
-Run specific test suites:
-
-```bash
-# Access control tests
-npx hardhat test test/AccessManager.test.ts
-
-# Payment processing tests
-npx hardhat test test/PaymentProcessor.test.ts
-
-# Integration tests
-npx hardhat test test/Integration.test.ts
-```
 
 ## Documentation
 
