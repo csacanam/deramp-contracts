@@ -87,14 +87,14 @@ contract AccessManager is AccessControl, IAccessManager {
     function grantRole(
         bytes32 role,
         address account
-    ) public override(AccessControl, IAccessManager) onlyProxy {
+    ) public override(AccessControl, IAccessManager) onlyAdmin {
         super.grantRole(role, account);
     }
 
     function revokeRole(
         bytes32 role,
         address account
-    ) public override(AccessControl, IAccessManager) onlyProxy {
+    ) public override(AccessControl, IAccessManager) onlyAdmin {
         super.revokeRole(role, account);
     }
 
@@ -224,7 +224,7 @@ contract AccessManager is AccessControl, IAccessManager {
     function addTokenToCommerceWhitelist(
         address commerce,
         address[] calldata tokens
-    ) external onlyProxy {
+    ) external onlyAuthorized(ONBOARDING_ROLE) {
         for (uint256 i = 0; i < tokens.length; i++) {
             storageContract.setCommerceTokenWhitelisted(
                 commerce,
@@ -237,7 +237,7 @@ contract AccessManager is AccessControl, IAccessManager {
     function removeTokenFromCommerceWhitelist(
         address commerce,
         address[] calldata tokens
-    ) external onlyProxy {
+    ) external onlyAuthorized(ONBOARDING_ROLE) {
         for (uint256 i = 0; i < tokens.length; i++) {
             storageContract.setCommerceTokenWhitelisted(
                 commerce,

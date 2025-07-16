@@ -193,120 +193,6 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         _unpause();
     }
 
-    // === ACCESS MANAGER FUNCTIONS ===
-    function grantRole(bytes32 role, address account) external onlyAdmin {
-        _delegateToAccessManager(
-            abi.encodeWithSignature("grantRole(bytes32,address)", role, account)
-        );
-    }
-
-    function revokeRole(bytes32 role, address account) external onlyAdmin {
-        _delegateToAccessManager(
-            abi.encodeWithSignature(
-                "revokeRole(bytes32,address)",
-                role,
-                account
-            )
-        );
-    }
-
-    // Token whitelist
-    function addTokenToWhitelist(
-        address token
-    ) external onlyTokenManagerOrAdmin whenNotPaused {
-        _delegateToAccessManager(
-            abi.encodeWithSignature("addTokenToWhitelist(address)", token)
-        );
-    }
-
-    function removeTokenFromWhitelist(
-        address token
-    ) external onlyTokenManagerOrAdmin whenNotPaused {
-        _delegateToAccessManager(
-            abi.encodeWithSignature("removeTokenFromWhitelist(address)", token)
-        );
-    }
-
-    // Commerce whitelist
-    function addCommerceToWhitelist(
-        address commerce
-    ) external onlyOnboardingOrAdmin whenNotPaused {
-        _delegateToAccessManager(
-            abi.encodeWithSignature("addCommerceToWhitelist(address)", commerce)
-        );
-    }
-
-    function removeCommerceFromWhitelist(
-        address commerce
-    ) external onlyOnboardingOrAdmin whenNotPaused {
-        _delegateToAccessManager(
-            abi.encodeWithSignature(
-                "removeCommerceFromWhitelist(address)",
-                commerce
-            )
-        );
-    }
-
-    // Per-commerce token whitelist (delegates to AccessManager)
-    function addTokenToCommerceWhitelist(
-        address commerce,
-        address[] calldata tokens
-    ) external onlyOnboardingOrAdmin whenNotPaused {
-        _delegateToAccessManager(
-            abi.encodeWithSignature(
-                "addTokenToCommerceWhitelist(address,address[])",
-                commerce,
-                tokens
-            )
-        );
-    }
-
-    function removeTokenFromCommerceWhitelist(
-        address commerce,
-        address[] calldata tokens
-    ) external onlyOnboardingOrAdmin whenNotPaused {
-        _delegateToAccessManager(
-            abi.encodeWithSignature(
-                "removeTokenFromCommerceWhitelist(address,address[])",
-                commerce,
-                tokens
-            )
-        );
-    }
-
-    function isTokenWhitelistedForCommerce(
-        address commerce,
-        address token
-    ) external view returns (bool) {
-        return
-            IAccessManager(accessManager).isTokenWhitelistedForCommerce(
-                commerce,
-                token
-            );
-    }
-
-    // Fee management
-    function setDefaultFeePercent(
-        uint256 feePercent
-    ) external onlyOnboardingOrAdmin whenNotPaused {
-        _delegateToAccessManager(
-            abi.encodeWithSignature("setDefaultFeePercent(uint256)", feePercent)
-        );
-    }
-
-    function setCommerceFee(
-        address commerce,
-        uint256 feePercent
-    ) external onlyOnboardingOrAdmin whenNotPaused {
-        _delegateToAccessManager(
-            abi.encodeWithSignature(
-                "setCommerceFee(address,uint256)",
-                commerce,
-                feePercent
-            )
-        );
-    }
-
     // === INVOICE MANAGER FUNCTIONS ===
     function createInvoice(
         bytes32 id,
@@ -336,146 +222,6 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         );
     }
 
-    function getInvoice(
-        bytes32 id
-    )
-        external
-        view
-        returns (
-            bytes32 invoiceId,
-            address payer,
-            address commerce,
-            address paidToken,
-            uint256 paidAmount,
-            IDerampStorage.Status status,
-            uint256 createdAt,
-            uint256 expiresAt,
-            uint256 paidAt,
-            uint256 refundedAt,
-            uint256 expiredAt
-        )
-    {
-        return IInvoiceManager(invoiceManager).getInvoice(id);
-    }
-
-    function getInvoicePaymentOptions(
-        bytes32 id
-    ) external view returns (IDerampStorage.PaymentOption[] memory) {
-        return IInvoiceManager(invoiceManager).getInvoicePaymentOptions(id);
-    }
-
-    function getCommerceInvoices(
-        address commerce
-    ) external view returns (bytes32[] memory) {
-        return IInvoiceManager(invoiceManager).getCommerceInvoices(commerce);
-    }
-
-    function getCommerceInvoiceCount(
-        address commerce
-    ) external view returns (uint256) {
-        return
-            IInvoiceManager(invoiceManager).getCommerceInvoiceCount(commerce);
-    }
-
-    function getCommerceInvoicesByStatus(
-        address commerce,
-        IDerampStorage.Status status
-    ) external view returns (bytes32[] memory) {
-        return
-            IInvoiceManager(invoiceManager).getCommerceInvoicesByStatus(
-                commerce,
-                status
-            );
-    }
-
-    function getRecentCommerceInvoices(
-        address commerce,
-        uint256 limit
-    ) external view returns (bytes32[] memory) {
-        return
-            IInvoiceManager(invoiceManager).getRecentCommerceInvoices(
-                commerce,
-                limit
-            );
-    }
-
-    function getMultipleInvoices(
-        bytes32[] calldata invoiceIds
-    )
-        external
-        view
-        returns (
-            bytes32[] memory ids,
-            address[] memory payers,
-            address[] memory commerces,
-            address[] memory paidTokens,
-            uint256[] memory paidAmounts,
-            IDerampStorage.Status[] memory statuses,
-            uint256[] memory createdAts,
-            uint256[] memory expiresAts,
-            uint256[] memory paidAts,
-            uint256[] memory refundedAts,
-            uint256[] memory expiredAts
-        )
-    {
-        return IInvoiceManager(invoiceManager).getMultipleInvoices(invoiceIds);
-    }
-
-    function getCommerceStats(
-        address commerce
-    )
-        external
-        view
-        returns (
-            uint256 totalInvoices,
-            uint256 pendingInvoices,
-            uint256 paidInvoices,
-            uint256 refundedInvoices,
-            uint256 expiredInvoices
-        )
-    {
-        return IInvoiceManager(invoiceManager).getCommerceStats(commerce);
-    }
-
-    function invoiceExists(bytes32 id) external view returns (bool) {
-        return IInvoiceManager(invoiceManager).invoiceExists(id);
-    }
-
-    function isInvoiceCommerce(
-        bytes32 id,
-        address commerce
-    ) external view returns (bool) {
-        return IInvoiceManager(invoiceManager).isInvoiceCommerce(id, commerce);
-    }
-
-    function getCommerceTokens(
-        address commerce
-    ) external view returns (address[] memory) {
-        return IInvoiceManager(invoiceManager).getCommerceTokens(commerce);
-    }
-
-    function getCommerceRevenue(
-        address commerce,
-        address token
-    ) external view returns (uint256 totalRevenue, uint256 netRevenue) {
-        return
-            IInvoiceManager(invoiceManager).getCommerceRevenue(commerce, token);
-    }
-
-    function getCommerceAllRevenues(
-        address commerce
-    )
-        external
-        view
-        returns (
-            address[] memory tokens,
-            uint256[] memory totalRevenues,
-            uint256[] memory netRevenues
-        )
-    {
-        return IInvoiceManager(invoiceManager).getCommerceAllRevenues(commerce);
-    }
-
     // === PAYMENT PROCESSOR FUNCTIONS ===
 
     function payInvoice(
@@ -502,34 +248,6 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         _delegateToPaymentProcessor(
             abi.encodeWithSignature("refundInvoice(bytes32)", id)
         );
-    }
-
-    function getBalance(
-        address commerce,
-        address token
-    ) external view returns (uint256) {
-        return IPaymentProcessor(paymentProcessor).getBalance(commerce, token);
-    }
-
-    function getServiceFeeBalance(
-        address token
-    ) external view returns (uint256) {
-        return IPaymentProcessor(paymentProcessor).getServiceFeeBalance(token);
-    }
-
-    function getBalances(
-        address commerce,
-        address[] calldata tokens
-    ) external view returns (uint256[] memory) {
-        return
-            IPaymentProcessor(paymentProcessor).getBalances(commerce, tokens);
-    }
-
-    function getServiceFeeBalances(
-        address[] calldata tokens
-    ) external view returns (uint256[] memory) {
-        return
-            IPaymentProcessor(paymentProcessor).getServiceFeeBalances(tokens);
     }
 
     // === WITHDRAWAL MANAGER FUNCTIONS ===
@@ -572,152 +290,6 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
                 to
             )
         );
-    }
-
-    function getWithdrawalCount() external view returns (uint256) {
-        return IWithdrawalManager(withdrawalManager).getWithdrawalCount();
-    }
-
-    function getWithdrawal(
-        uint256 index
-    ) external view returns (IDerampStorage.WithdrawalRecord memory) {
-        return IWithdrawalManager(withdrawalManager).getWithdrawal(index);
-    }
-
-    function getMultipleWithdrawals(
-        uint256[] calldata indices
-    ) external view returns (IDerampStorage.WithdrawalRecord[] memory) {
-        return
-            IWithdrawalManager(withdrawalManager).getMultipleWithdrawals(
-                indices
-            );
-    }
-
-    function getCommerceWithdrawalIndices(
-        address commerce
-    ) external view returns (uint256[] memory) {
-        return
-            IWithdrawalManager(withdrawalManager).getCommerceWithdrawalIndices(
-                commerce
-            );
-    }
-
-    function getRecentCommerceWithdrawals(
-        address commerce,
-        uint256 limit
-    ) external view returns (IDerampStorage.WithdrawalRecord[] memory) {
-        return
-            IWithdrawalManager(withdrawalManager).getRecentCommerceWithdrawals(
-                commerce,
-                limit
-            );
-    }
-
-    function getCommerceWithdrawalStats(
-        address commerce
-    )
-        external
-        view
-        returns (
-            uint256 totalWithdrawals,
-            uint256[] memory totalAmountByToken,
-            address[] memory tokens
-        )
-    {
-        return
-            IWithdrawalManager(withdrawalManager).getCommerceWithdrawalStats(
-                commerce
-            );
-    }
-
-    function getWithdrawalHistory()
-        external
-        view
-        returns (IDerampStorage.WithdrawalRecord[] memory)
-    {
-        return IWithdrawalManager(withdrawalManager).getWithdrawalHistory();
-    }
-
-    function getCommerceWithdrawals(
-        address commerce
-    ) external view returns (IDerampStorage.WithdrawalRecord[] memory) {
-        return
-            IWithdrawalManager(withdrawalManager).getCommerceWithdrawals(
-                commerce
-            );
-    }
-
-    function getWithdrawalsByType(
-        IDerampStorage.WithdrawalType withdrawalType
-    ) external view returns (IDerampStorage.WithdrawalRecord[] memory) {
-        return
-            IWithdrawalManager(withdrawalManager).getWithdrawalsByType(
-                withdrawalType
-            );
-    }
-
-    function getWithdrawalsByToken(
-        address token
-    ) external view returns (IDerampStorage.WithdrawalRecord[] memory) {
-        return
-            IWithdrawalManager(withdrawalManager).getWithdrawalsByToken(token);
-    }
-
-    function getRecentWithdrawals(
-        uint256 limit
-    ) external view returns (IDerampStorage.WithdrawalRecord[] memory) {
-        return
-            IWithdrawalManager(withdrawalManager).getRecentWithdrawals(limit);
-    }
-
-    function getWithdrawalsByDateRange(
-        uint256 fromTimestamp,
-        uint256 toTimestamp
-    ) external view returns (IDerampStorage.WithdrawalRecord[] memory) {
-        return
-            IWithdrawalManager(withdrawalManager).getWithdrawalsByDateRange(
-                fromTimestamp,
-                toTimestamp
-            );
-    }
-
-    function getTotalWithdrawalsByToken(
-        address token
-    ) external view returns (uint256 totalAmount, uint256 totalCount) {
-        return
-            IWithdrawalManager(withdrawalManager).getTotalWithdrawalsByToken(
-                token
-            );
-    }
-
-    function getCommerceBalance(
-        address commerce,
-        address token
-    ) external view returns (uint256 balance) {
-        (bool success, bytes memory data) = withdrawalManager.staticcall(
-            abi.encodeWithSignature(
-                "getCommerceBalance(address,address)",
-                commerce,
-                token
-            )
-        );
-        require(success, "getCommerceBalance call failed");
-        balance = abi.decode(data, (uint256));
-    }
-
-    function getCommerceBalances(
-        address commerce,
-        address[] calldata tokens
-    ) external view returns (uint256[] memory balances) {
-        (bool success, bytes memory data) = withdrawalManager.staticcall(
-            abi.encodeWithSignature(
-                "getCommerceBalances(address,address[])",
-                commerce,
-                tokens
-            )
-        );
-        require(success, "getCommerceBalances call failed");
-        balances = abi.decode(data, (uint256[]));
     }
 
     // === TREASURY MANAGER FUNCTIONS ===
@@ -806,78 +378,6 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         );
     }
 
-    function getTreasuryWallet(
-        address wallet
-    ) external view returns (IDerampStorage.TreasuryWallet memory) {
-        return ITreasuryManager(treasuryManager).getTreasuryWallet(wallet);
-    }
-
-    function getAllTreasuryWallets() external view returns (address[] memory) {
-        return ITreasuryManager(treasuryManager).getAllTreasuryWallets();
-    }
-
-    function getActiveTreasuryWallets()
-        external
-        view
-        returns (address[] memory)
-    {
-        return ITreasuryManager(treasuryManager).getActiveTreasuryWallets();
-    }
-
-    function isTreasuryWalletActive(
-        address wallet
-    ) external view returns (bool) {
-        return ITreasuryManager(treasuryManager).isTreasuryWalletActive(wallet);
-    }
-
-    function getTreasuryWallets()
-        external
-        view
-        returns (IDerampStorage.TreasuryWallet[] memory)
-    {
-        return ITreasuryManager(treasuryManager).getTreasuryWallets();
-    }
-
-    function getServiceFeeWithdrawalIndices()
-        external
-        view
-        returns (uint256[] memory)
-    {
-        return
-            ITreasuryManager(treasuryManager).getServiceFeeWithdrawalIndices();
-    }
-
-    function getServiceFeeWithdrawals()
-        external
-        view
-        returns (IDerampStorage.WithdrawalRecord[] memory)
-    {
-        return ITreasuryManager(treasuryManager).getServiceFeeWithdrawals();
-    }
-
-    function getRecentServiceFeeWithdrawals(
-        uint256 limit
-    ) external view returns (IDerampStorage.WithdrawalRecord[] memory) {
-        return
-            ITreasuryManager(treasuryManager).getRecentServiceFeeWithdrawals(
-                limit
-            );
-    }
-
-    function getServiceFeeWithdrawalStats()
-        external
-        view
-        returns (
-            uint256 totalWithdrawals,
-            uint256[] memory totalAmountByToken,
-            address[] memory tokens,
-            address[] memory treasuryWalletList,
-            uint256[][] memory amountsByTreasury
-        )
-    {
-        return ITreasuryManager(treasuryManager).getServiceFeeWithdrawalStats();
-    }
-
     // === YIELD MANAGER FUNCTIONS ===
     /**
      * @notice Returns the principal (deposited amount) in yield for the caller and token.
@@ -960,37 +460,37 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
 
     function _delegateToAccessManager(bytes memory data) internal {
         require(accessManager != address(0), "AccessManager not set");
-        (bool success, ) = accessManager.delegatecall(data);
+        (bool success, ) = accessManager.call(data);
         require(success, "AccessManager call failed");
     }
 
     function _delegateToInvoiceManager(bytes memory data) internal {
         require(invoiceManager != address(0), "InvoiceManager not set");
-        (bool success, ) = invoiceManager.delegatecall(data);
+        (bool success, ) = invoiceManager.call(data);
         require(success, "InvoiceManager call failed");
     }
 
     function _delegateToPaymentProcessor(bytes memory data) internal {
         require(paymentProcessor != address(0), "PaymentProcessor not set");
-        (bool success, ) = paymentProcessor.delegatecall(data);
+        (bool success, ) = paymentProcessor.call(data);
         require(success, "PaymentProcessor call failed");
     }
 
     function _delegateToWithdrawalManager(bytes memory data) internal {
         require(withdrawalManager != address(0), "WithdrawalManager not set");
-        (bool success, ) = withdrawalManager.delegatecall(data);
+        (bool success, ) = withdrawalManager.call(data);
         require(success, "WithdrawalManager call failed");
     }
 
     function _delegateToTreasuryManager(bytes memory data) internal {
         require(treasuryManager != address(0), "TreasuryManager not set");
-        (bool success, ) = treasuryManager.delegatecall(data);
+        (bool success, ) = treasuryManager.call(data);
         require(success, "TreasuryManager call failed");
     }
 
     function _delegateToYieldManager(bytes memory data) internal {
         require(yieldManager != address(0), "YieldManager not set");
-        (bool success, ) = yieldManager.delegatecall(data);
+        (bool success, ) = yieldManager.call(data);
         require(success, "YieldManager call failed");
     }
 

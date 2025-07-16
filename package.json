@@ -5,6 +5,9 @@
   "main": "index.js",
   "scripts": {
     "test": "npx hardhat test",
+    "test:unit": "npx hardhat test test/unit/",
+    "test:integration": "npx hardhat test test/integration/",
+    "test:e2e": "npx hardhat test test/e2e/",
     "test:coverage": "npx hardhat coverage",
     "test:gas": "REPORT_GAS=true npx hardhat test",
     "compile": "npx hardhat compile",
