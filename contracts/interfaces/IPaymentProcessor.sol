@@ -8,7 +8,8 @@ interface IPaymentProcessor {
     function payInvoice(
         bytes32 invoiceId,
         address token,
-        uint256 amount
+        uint256 amount,
+        address payer
     ) external payable;
 
     function refundInvoice(bytes32 id) external;

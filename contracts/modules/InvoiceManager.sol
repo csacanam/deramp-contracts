@@ -38,7 +38,7 @@ contract InvoiceManager is Pausable, IInvoiceManager {
                 accessManager.getDefaultAdminRole(),
                 msg.sender
             ),
-            "Not owner"
+            "Not owner [IM]"
         );
         _;
     }
@@ -47,13 +47,13 @@ contract InvoiceManager is Pausable, IInvoiceManager {
         IDerampStorage.Invoice memory inv = storageContract.getInvoice(
             invoiceId
         );
-        require(inv.id != bytes32(0), "Invoice not found");
-        require(msg.sender == inv.commerce, "Not the invoice commerce");
+        require(inv.id != bytes32(0), "Invoice not found [IM]");
+        require(msg.sender == inv.commerce, "Not the invoice commerce [IM]");
         _;
     }
 
     modifier onlyProxy() {
-        require(msg.sender == proxy, "Only proxy can call");
+        require(msg.sender == proxy, "Only proxy can call [IM]");
         _;
     }
 
@@ -73,34 +73,34 @@ contract InvoiceManager is Pausable, IInvoiceManager {
     ) external onlyProxy {
         require(
             storageContract.getInvoice(id).id == bytes32(0),
-            "Invoice already exists"
+            "Invoice already exists [IM]"
         );
-        require(commerce != address(0), "Invalid commerce");
+        require(commerce != address(0), "Invalid commerce [IM]");
         require(
             accessManager.isCommerceWhitelisted(commerce),
-            "Commerce not whitelisted"
+            "Commerce not whitelisted [IM]"
         );
         require(
             paymentOptions.length > 0,
-            "At least one payment option required"
+            "At least one payment option required [IM]"
         );
 
         // Validate all payment options
         for (uint256 i = 0; i < paymentOptions.length; i++) {
             require(
                 accessManager.isTokenWhitelisted(paymentOptions[i].token),
-                "Token not whitelisted"
+                "Token not whitelisted [IM]"
             );
             require(
                 storageContract.isTokenWhitelistedForCommerce(
                     commerce,
                     paymentOptions[i].token
                 ),
-                "Token not whitelisted for this commerce"
+                "Token not whitelisted for this commerce [IM]"
             );
             require(
                 paymentOptions[i].amount > 0,
-                "Amount must be greater than 0"
+                "Amount must be greater than 0 [IM]"
             );
         }
 
@@ -136,10 +136,10 @@ contract InvoiceManager is Pausable, IInvoiceManager {
 
     function cancelInvoice(bytes32 id) external onlyProxy {
         IDerampStorage.Invoice memory inv = storageContract.getInvoice(id);
-        require(inv.id != bytes32(0), "Invoice not found");
+        require(inv.id != bytes32(0), "Invoice not found [IM]");
         require(
             inv.status == IDerampStorage.Status.PENDING,
-            "Only pending invoices can be cancelled"
+            "Only pending invoices can be cancelled [IM]"
         );
 
         IDerampStorage.Invoice memory updatedInvoice = inv;

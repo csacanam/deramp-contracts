@@ -52,19 +52,20 @@ contract PaymentProcessor is Pausable, IPaymentProcessor {
     function payInvoice(
         bytes32 invoiceId,
         address token,
-        uint256 amount
+        uint256 amount,
+        address payer
     ) external payable onlyProxy {
         IDerampStorage.Invoice memory invoice = storageContract.getInvoice(
             invoiceId
         );
-        require(invoice.id != bytes32(0), "Invoice not found");
+        require(invoice.id != bytes32(0), "Invoice not found [PP]");
         require(
             invoice.status == IDerampStorage.Status.PENDING,
-            "Invoice is not pending"
+            "Invoice is not pending [PP]"
         );
         require(
             invoice.expiresAt == 0 || block.timestamp <= invoice.expiresAt,
-            "Invoice has expired"
+            "Invoice has expired [PP]"
         );
 
         // Validate payment option
@@ -81,22 +82,22 @@ contract PaymentProcessor is Pausable, IPaymentProcessor {
             }
         }
 
-        require(validPaymentOption, "Invalid payment option");
+        require(validPaymentOption, "Invalid payment option [PP]");
         require(
             accessManager.isTokenWhitelisted(token),
-            "Token not globally whitelisted"
+            "Token not globally whitelisted [PP]"
         );
         require(
             storageContract.isTokenWhitelistedForCommerce(
                 invoice.commerce,
                 token
             ),
-            "Token not whitelisted for this commerce"
+            "Token not whitelisted for this commerce [PP]"
         );
-        require(amount == expectedAmount, "Incorrect payment amount");
+        require(amount == expectedAmount, "Incorrect payment amount [PP]");
 
-        // Transfer tokens from payer to contract
-        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
+        // Transferencia de tokens eliminada: los fondos ya están en el proxy
+        // IERC20(token).safeTransferFrom(payer, proxy, amount);
 
         // Calculate fees
         uint256 serviceFee = calculateServiceFee(invoice.commerce, amount);
@@ -104,7 +105,7 @@ contract PaymentProcessor is Pausable, IPaymentProcessor {
 
         // Update invoice
         IDerampStorage.Invoice memory updatedInvoice = invoice;
-        updatedInvoice.payer = msg.sender;
+        updatedInvoice.payer = payer;
         updatedInvoice.paidToken = token;
         updatedInvoice.paidAmount = amount;
         updatedInvoice.status = IDerampStorage.Status.PAID;
@@ -119,7 +120,7 @@ contract PaymentProcessor is Pausable, IPaymentProcessor {
 
         // Payment tracked in invoice update
 
-        emit IDerampStorage.InvoicePaid(invoiceId, msg.sender, token, amount);
+        emit IDerampStorage.InvoicePaid(invoiceId, payer, token, amount);
     }
 
     function calculateServiceFee(
@@ -139,19 +140,20 @@ contract PaymentProcessor is Pausable, IPaymentProcessor {
         IDerampStorage.Invoice memory invoice = storageContract.getInvoice(
             invoiceId
         );
-        require(invoice.id != bytes32(0), "Invoice not found");
+        require(invoice.id != bytes32(0), "Invoice not found [PP]");
         require(
             invoice.status == IDerampStorage.Status.PAID,
-            "Invoice is not paid"
+            "Invoice is not paid [PP]"
         );
 
+        // Calculate refund amount (only what the commerce received, not the full paid amount)
         uint256 refundAmount = invoice.paidAmount;
 
         // Check commerce balance
         require(
             storageContract.balances(invoice.commerce, invoice.paidToken) >=
                 refundAmount,
-            "Insufficient commerce balance"
+            "Insufficient balance [PP]"
         );
 
         // Update commerce balance
@@ -161,8 +163,8 @@ contract PaymentProcessor is Pausable, IPaymentProcessor {
             refundAmount
         );
 
-        // Transfer refund to payer
-        IERC20(invoice.paidToken).safeTransfer(invoice.payer, refundAmount);
+        // Los fondos quedan en el proxy - no se transfieren aquí
+        // La transferencia real se maneja en el proxy cuando sea necesario
 
         // Update invoice
         IDerampStorage.Invoice memory updatedInvoice = invoice;

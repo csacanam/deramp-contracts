@@ -29,6 +29,8 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./interfaces/IDerampStorage.sol";
 import "./interfaces/IAccessManager.sol";
 import "./interfaces/IInvoiceManager.sol";
@@ -38,6 +40,7 @@ import "./interfaces/ITreasuryManager.sol";
 import "./interfaces/IYieldManager.sol";
 
 contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
+    using SafeERC20 for IERC20;
     // Module contracts
     address public storageContract;
     address public accessManager;
@@ -100,7 +103,7 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
                 IAccessManager(accessManager).getDefaultAdminRole(),
                 msg.sender
             ),
-            "Not admin"
+            "Not admin [PX]"
         );
         _;
     }
@@ -110,14 +113,14 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
             msg.sender == commerce ||
                 am.hasRole(am.getDefaultAdminRole(), msg.sender) ||
                 am.hasRole(am.getBackendOperatorRole(), msg.sender),
-            "Not authorized"
+            "Not authorized [PX]"
         );
         _;
     }
     modifier onlyRegisteredCommerce() {
         require(
             IAccessManager(accessManager).isCommerceWhitelisted(msg.sender),
-            "Commerce not whitelisted"
+            "Commerce not whitelisted [PX]"
         );
         _;
     }
@@ -129,7 +132,7 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
             msg.sender == commerce ||
                 am.hasRole(am.getDefaultAdminRole(), msg.sender) ||
                 am.hasRole(am.getBackendOperatorRole(), msg.sender),
-            "Not authorized"
+            "Not authorized [PX]"
         );
     }
 
@@ -215,7 +218,7 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         address commerce = IDerampStorage(storageContract)
             .getInvoice(id)
             .commerce;
-        require(commerce != address(0), "Invoice not found");
+        require(commerce != address(0), "Invoice not found [PX]");
         _onlyCommerceOrAdminOrBackend(commerce);
         _delegateToInvoiceManager(
             abi.encodeWithSignature("cancelInvoice(bytes32)", id)
@@ -229,12 +232,15 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         address token,
         uint256 amount
     ) external payable whenNotPaused nonReentrant {
+        // Transfer tokens from msg.sender to proxy
+        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         _delegateToPaymentProcessor(
             abi.encodeWithSignature(
-                "payInvoice(bytes32,address,uint256)",
+                "payInvoice(bytes32,address,uint256,address)",
                 invoiceId,
                 token,
-                amount
+                amount,
+                msg.sender
             )
         );
     }
@@ -472,8 +478,18 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
 
     function _delegateToPaymentProcessor(bytes memory data) internal {
         require(paymentProcessor != address(0), "PaymentProcessor not set");
-        (bool success, ) = paymentProcessor.call(data);
-        require(success, "PaymentProcessor call failed");
+        (bool success, bytes memory returndata) = paymentProcessor.call(data);
+        if (!success) {
+            // Bubble up revert reason from PaymentProcessor
+            if (returndata.length > 0) {
+                assembly {
+                    let returndata_size := mload(returndata)
+                    revert(add(32, returndata), returndata_size)
+                }
+            } else {
+                revert("PaymentProcessor call failed");
+            }
+        }
     }
 
     function _delegateToWithdrawalManager(bytes memory data) internal {

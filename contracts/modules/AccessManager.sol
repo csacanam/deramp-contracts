@@ -45,7 +45,7 @@ contract AccessManager is AccessControl, IAccessManager {
 
     // === MODIFIERS ===
     modifier onlyAdmin() {
-        require(hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "Not admin");
+        require(hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "Not admin [AM]");
         _;
     }
 
@@ -53,13 +53,13 @@ contract AccessManager is AccessControl, IAccessManager {
         require(
             hasRole(DEFAULT_ADMIN_ROLE, msg.sender) ||
                 hasRole(role, msg.sender),
-            "Not authorized"
+            "Not authorized [AM]"
         );
         _;
     }
 
     modifier onlyProxy() {
-        require(msg.sender == proxy, "Only proxy can call");
+        require(msg.sender == proxy, "Only proxy can call [AM]");
         _;
     }
 
@@ -115,7 +115,7 @@ contract AccessManager is AccessControl, IAccessManager {
     function addTokenToWhitelist(
         address token
     ) external onlyAuthorized(TOKEN_MANAGER_ROLE) {
-        require(token != address(0), "Invalid token address");
+        require(token != address(0), "Invalid token address [AM]");
         storageContract.setWhitelistedToken(token, true);
         emit TokenWhitelisted(token, true);
     }
@@ -131,7 +131,7 @@ contract AccessManager is AccessControl, IAccessManager {
     function addCommerceToWhitelist(
         address commerce
     ) external onlyAuthorized(ONBOARDING_ROLE) {
-        require(commerce != address(0), "Invalid commerce address");
+        require(commerce != address(0), "Invalid commerce address [AM]");
         storageContract.setWhitelistedCommerce(commerce, true);
         emit CommerceWhitelisted(commerce, true);
     }
@@ -147,7 +147,7 @@ contract AccessManager is AccessControl, IAccessManager {
     function setDefaultFeePercent(
         uint256 feePercent
     ) external onlyAuthorized(ONBOARDING_ROLE) {
-        require(feePercent <= 100, "Fee too high"); // Max 1%
+        require(feePercent <= 100, "Fee too high [AM]"); // Max 1%
         storageContract.setDefaultFeePercent(feePercent);
         emit DefaultFeePercentUpdated(feePercent);
     }
@@ -156,7 +156,7 @@ contract AccessManager is AccessControl, IAccessManager {
         address commerce,
         uint256 feePercent
     ) external onlyAuthorized(ONBOARDING_ROLE) {
-        require(feePercent <= 100, "Fee too high"); // Max 1%
+        require(feePercent <= 100, "Fee too high [AM]"); // Max 1%
         storageContract.setCommerceFee(commerce, feePercent);
         emit CommerceFeeUpdated(commerce, feePercent);
     }

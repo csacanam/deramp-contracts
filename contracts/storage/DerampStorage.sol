@@ -365,7 +365,7 @@ contract DerampStorage is Ownable, IDerampStorage {
     }
 
     modifier onlyAuthorizedModule() {
-        require(authorizedModules[msg.sender], "Unauthorized module");
+        require(authorizedModules[msg.sender], "Unauthorized module [STORAGE]");
         _;
     }
 }

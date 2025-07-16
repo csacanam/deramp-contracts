@@ -235,23 +235,19 @@ describe("InvoiceManager", function () {
              .withArgs(invoiceId, await commerce1.getAddress());
         });
 
-        it("should not allow unauthorized user to create invoice", async function () {
-            const invoiceId = ethers.keccak256(ethers.toUtf8Bytes("invoice-unauth"));
-            const expiresAt = Math.floor(Date.now() / 1000) + 3600;
-            const paymentOptions = [
-                {
-                    token: await mockToken1.getAddress(),
-                    amount: ethers.parseUnits("100", 6)
-                }
-            ];
+        it('should not allow unauthorized user to create invoice', async () => {
+            const invoiceId = ethers.keccak256(ethers.toUtf8Bytes('unauthorized-invoice'));
             await expect(
-                proxy.connect(user1).createInvoice(
+                invoiceManager.connect(user1).createInvoice(
                     invoiceId,
                     await commerce1.getAddress(),
-                    paymentOptions,
-                    expiresAt
+                    [{
+                        token: await mockToken1.getAddress(),
+                        amount: ethers.parseUnits('100', 6)
+                    }],
+                    0
                 )
-            ).to.be.revertedWith("Not authorized");
+            ).to.be.revertedWith('Only proxy can call [IM]');
         });
     });
 
@@ -287,12 +283,11 @@ describe("InvoiceManager", function () {
             expect(invoice.expiredAt).to.be.gt(0);
         });
 
-        it("should fail to cancel non-existent invoice", async function () {
-            const nonExistentId = ethers.keccak256(ethers.toUtf8Bytes("non-existent"));
-            
+        it('should fail to cancel non-existent invoice', async () => {
+            const nonExistentId = ethers.keccak256(ethers.toUtf8Bytes('non-existent'));
             await expect(
                 proxy.cancelInvoice(nonExistentId)
-            ).to.be.revertedWith("Invoice not found");
+            ).to.be.revertedWith('Invoice not found [PX]');
         });
 
         it("should fail to cancel already cancelled invoice", async function () {
@@ -327,13 +322,13 @@ describe("InvoiceManager", function () {
             expect(invoice.expiredAt).to.be.gt(0);
         });
 
-        it("should not allow unauthorized user to cancel invoice", async function () {
+        it('should not allow unauthorized user to cancel invoice', async () => {
             await expect(
                 proxy.connect(user1).cancelInvoice(invoiceId)
-            ).to.be.revertedWith("Not authorized");
+            ).to.be.revertedWith('Not authorized [PX]');
         });
 
-        it("should not allow commerce to cancel another commerce invoice", async function () {
+        it('should not allow commerce to cancel another commerce invoice', async () => {
             // Create invoice for commerce2
             const invoiceId2 = ethers.keccak256(ethers.toUtf8Bytes("invoice-commerce2"));
             const expiresAt2 = Math.floor(Date.now() / 1000) + 3600;
@@ -352,7 +347,7 @@ describe("InvoiceManager", function () {
             // Try to cancel from commerce1
             await expect(
                 proxy.connect(commerce1).cancelInvoice(invoiceId2)
-            ).to.be.revertedWith("Not authorized");
+            ).to.be.revertedWith('Not authorized [PX]');
         });
     });
 
@@ -606,27 +601,22 @@ describe("InvoiceManager", function () {
     });
 
     describe("Access Control", function () {
-        it("should only allow proxy to create invoices", async function () {
-            const invoiceId = ethers.keccak256(ethers.toUtf8Bytes("invoice-1"));
-            const expiresAt = Math.floor(Date.now() / 1000) + 3600;
-            
-            const paymentOptions = [{
-                token: await mockToken1.getAddress(),
-                amount: ethers.parseUnits("100", 6)
-            }];
-
-            // Try to call directly (should fail)
+        it('should only allow proxy to create invoices', async () => {
+            const invoiceId = ethers.keccak256(ethers.toUtf8Bytes('direct-call-test'));
             await expect(
-                invoiceManager.connect(user1).createInvoice(
+                invoiceManager.createInvoice(
                     invoiceId,
                     await commerce1.getAddress(),
-                    paymentOptions,
-                    expiresAt
+                    [{
+                        token: await mockToken1.getAddress(),
+                        amount: ethers.parseUnits('100', 6)
+                    }],
+                    0
                 )
-            ).to.be.revertedWith("Only proxy can call");
+            ).to.be.revertedWith('Only proxy can call [IM]');
         });
 
-        it("should only allow proxy to cancel invoices", async function () {
+        it('should only allow proxy to cancel invoices', async () => {
             const invoiceId = ethers.keccak256(ethers.toUtf8Bytes("invoice-1"));
             const expiresAt = Math.floor(Date.now() / 1000) + 3600;
             
@@ -642,10 +632,9 @@ describe("InvoiceManager", function () {
                 expiresAt
             );
 
-            // Try to cancel directly (should fail)
             await expect(
-                invoiceManager.connect(user1).cancelInvoice(invoiceId)
-            ).to.be.revertedWith("Only proxy can call");
+                invoiceManager.cancelInvoice(invoiceId)
+            ).to.be.revertedWith('Only proxy can call [IM]');
         });
     });
 

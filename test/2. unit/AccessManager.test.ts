@@ -71,7 +71,7 @@ describe('AccessManager', () => {
       const { accessManager, admin } = context;
       await expect(
         accessManager.connect(admin).addTokenToWhitelist(ethers.ZeroAddress)
-      ).to.be.revertedWith('Invalid token address');
+      ).to.be.revertedWith('Invalid token address [AM]');
     });
 
     it('should get whitelisted tokens list', async () => {
@@ -109,7 +109,7 @@ describe('AccessManager', () => {
       const { accessManager, admin } = context;
       await expect(
         accessManager.connect(admin).addCommerceToWhitelist(ethers.ZeroAddress)
-      ).to.be.revertedWith('Invalid commerce address');
+      ).to.be.revertedWith('Invalid commerce address [AM]');
     });
 
     it('should add tokens to commerce whitelist', async () => {
@@ -189,11 +189,11 @@ describe('AccessManager', () => {
       
       await expect(
         accessManager.connect(admin).setDefaultFeePercent(invalidFee)
-      ).to.be.revertedWith('Fee too high');
+      ).to.be.revertedWith('Fee too high [AM]');
       
       await expect(
         accessManager.connect(admin).setCommerceFee(await commerce1.getAddress(), invalidFee)
-      ).to.be.revertedWith('Fee too high');
+      ).to.be.revertedWith('Fee too high [AM]');
     });
   });
 
@@ -203,7 +203,7 @@ describe('AccessManager', () => {
       
       await expect(
         accessManager.connect(tokenManager).addCommerceToWhitelist(await commerce1.getAddress())
-      ).to.be.revertedWith('Not authorized');
+      ).to.be.revertedWith('Not authorized [AM]');
     });
 
     it('should deny ONBOARDING_ROLE access to token functions', async () => {
@@ -211,7 +211,7 @@ describe('AccessManager', () => {
       
       await expect(
         accessManager.connect(onboarding).addTokenToWhitelist(await mockToken1.getAddress())
-      ).to.be.revertedWith('Not authorized');
+      ).to.be.revertedWith('Not authorized [AM]');
     });
 
     it('should deny unauthorized users access to all functions', async () => {
@@ -219,11 +219,11 @@ describe('AccessManager', () => {
       
       await expect(
         accessManager.connect(user1).addTokenToWhitelist(await mockToken1.getAddress())
-      ).to.be.revertedWith('Not authorized');
+      ).to.be.revertedWith('Not authorized [AM]');
       
       await expect(
         accessManager.connect(user1).addCommerceToWhitelist(await commerce1.getAddress())
-      ).to.be.revertedWith('Not authorized');
+      ).to.be.revertedWith('Not authorized [AM]');
     });
   });
 
@@ -260,7 +260,7 @@ describe('AccessManager', () => {
       
       await expect(
         accessManager.connect(user1).emergencyPause()
-      ).to.be.revertedWith('Not admin');
+      ).to.be.revertedWith('Not admin [AM]');
     });
   });
 }); 

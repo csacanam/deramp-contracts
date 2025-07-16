@@ -53,7 +53,7 @@ contract TreasuryManager is Pausable, ITreasuryManager {
         address wallet,
         string calldata description
     ) external onlyProxy {
-        require(wallet != address(0), "Invalid wallet address");
+        require(wallet != address(0), "Invalid wallet address [TM]");
 
         IDerampStorage.TreasuryWallet memory treasuryWallet = IDerampStorage
             .TreasuryWallet({
@@ -99,13 +99,13 @@ contract TreasuryManager is Pausable, ITreasuryManager {
         address token,
         address to
     ) external onlyProxy {
-        require(to != address(0), "Invalid treasury address");
+        require(to != address(0), "Invalid treasury address [TM]");
         require(
             storageContract.getTreasuryWallet(to).isActive,
-            "Treasury wallet not active"
+            "Treasury wallet not active [TM]"
         );
         uint256 amount = storageContract.getServiceFeeBalance(token);
-        require(amount > 0, "No service fees to withdraw");
+        require(amount > 0, "No service fees to withdraw [TM]");
 
         storageContract.subtractServiceFeeBalance(token, amount);
         IERC20(token).safeTransfer(to, amount);
@@ -117,12 +117,12 @@ contract TreasuryManager is Pausable, ITreasuryManager {
         address[] calldata tokens,
         address to
     ) external onlyProxy {
-        require(to != address(0), "Invalid treasury address");
+        require(to != address(0), "Invalid treasury address [TM]");
         require(
             storageContract.getTreasuryWallet(to).isActive,
-            "Treasury wallet not active"
+            "Treasury wallet not active [TM]"
         );
-        require(tokens.length > 0, "No tokens provided");
+        require(tokens.length > 0, "No tokens provided [TM]");
         uint256 totalWithdrawn = 0;
 
         for (uint256 i = 0; i < tokens.length; i++) {
@@ -135,20 +135,20 @@ contract TreasuryManager is Pausable, ITreasuryManager {
             }
         }
 
-        require(totalWithdrawn > 0, "No service fees to withdraw");
+        require(totalWithdrawn > 0, "No service fees to withdraw [TM]");
     }
 
     function withdrawAllServiceFeesToTreasury(address to) external onlyProxy {
-        require(to != address(0), "Invalid treasury address");
+        require(to != address(0), "Invalid treasury address [TM]");
         require(
             storageContract.getTreasuryWallet(to).isActive,
-            "Treasury wallet not active"
+            "Treasury wallet not active [TM]"
         );
 
         // Get all whitelisted tokens
         address[] memory whitelistedTokens = storageContract
             .getWhitelistedTokens();
-        require(whitelistedTokens.length > 0, "No whitelisted tokens");
+        require(whitelistedTokens.length > 0, "No whitelisted tokens [TM]");
 
         uint256 totalWithdrawn = 0;
 
@@ -171,7 +171,7 @@ contract TreasuryManager is Pausable, ITreasuryManager {
             }
         }
 
-        require(totalWithdrawn > 0, "No service fees to withdraw");
+        require(totalWithdrawn > 0, "No service fees to withdraw [TM]");
     }
 
     // === VIEW FUNCTIONS ===

@@ -51,7 +51,7 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
 
     function withdraw(address commerce, address token) external onlyProxy {
         uint256 amount = storageContract.balances(commerce, token);
-        require(amount > 0, "No funds");
+        require(amount > 0, "No funds [WM]");
 
         // Update balance
         storageContract.subtractFromBalance(commerce, token, amount);
@@ -81,7 +81,7 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
         address commerce,
         address[] calldata tokens
     ) external onlyProxy {
-        require(tokens.length > 0, "No tokens provided");
+        require(tokens.length > 0, "No tokens provided [WM]");
         uint256 totalWithdrawn = 0;
 
         for (uint256 i = 0; i < tokens.length; i++) {
@@ -117,7 +117,7 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
             totalWithdrawn++;
         }
 
-        require(totalWithdrawn > 0, "No funds to withdraw");
+        require(totalWithdrawn > 0, "No funds to withdraw [WM]");
     }
 
     function withdrawTo(
@@ -126,11 +126,11 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
         uint256 amount,
         address to
     ) external onlyProxy {
-        require(amount > 0, "Amount must be greater than 0");
-        require(to != address(0), "Invalid recipient");
+        require(amount > 0, "Amount must be greater than 0 [WM]");
+        require(to != address(0), "Invalid recipient [WM]");
         require(
             storageContract.balances(commerce, token) >= amount,
-            "Insufficient balance"
+            "Insufficient balance [WM]"
         );
 
         // Update balance
@@ -167,7 +167,7 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
     ) external view returns (IDerampStorage.WithdrawalRecord memory) {
         IDerampStorage.WithdrawalRecord[] memory history = storageContract
             .getWithdrawalHistory();
-        require(index < history.length, "Withdrawal index out of bounds");
+        require(index < history.length, "Withdrawal index out of bounds [WM]");
         return history[index];
     }
 
@@ -184,7 +184,7 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
         for (uint256 i = 0; i < indices.length; i++) {
             require(
                 indices[i] < history.length,
-                "Withdrawal index out of bounds"
+                "Withdrawal index out of bounds [WM]"
             );
             result[i] = history[indices[i]];
         }
