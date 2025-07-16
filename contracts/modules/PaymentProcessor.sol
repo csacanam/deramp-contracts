@@ -96,9 +96,6 @@ contract PaymentProcessor is Pausable, IPaymentProcessor {
         );
         require(amount == expectedAmount, "Incorrect payment amount [PP]");
 
-        // Transferencia de tokens eliminada: los fondos ya están en el proxy
-        // IERC20(token).safeTransferFrom(payer, proxy, amount);
-
         // Calculate fees
         uint256 serviceFee = calculateServiceFee(invoice.commerce, amount);
         uint256 commerceAmount = amount - serviceFee;
@@ -162,9 +159,6 @@ contract PaymentProcessor is Pausable, IPaymentProcessor {
             invoice.paidToken,
             refundAmount
         );
-
-        // Los fondos quedan en el proxy - no se transfieren aquí
-        // La transferencia real se maneja en el proxy cuando sea necesario
 
         // Update invoice
         IDerampStorage.Invoice memory updatedInvoice = invoice;

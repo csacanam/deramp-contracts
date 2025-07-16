@@ -240,9 +240,8 @@ describe('AccessManager', () => {
 
     it('should return correct storage and proxy addresses', async () => {
       const { accessManager, storage, proxy } = context;
-      // El getter getStorageContract no existe, así que comentamos esta parte
-      // expect(await accessManager.getStorageContract()).to.equal(await storage.getAddress());
-      // expect(await accessManager.getProxyContract()).to.equal(await proxy.getAddress());
+      expect(await accessManager.storageContract()).to.equal(await storage.getAddress());
+      expect(await accessManager.proxy()).to.equal(await proxy.getAddress());
     });
   });
 

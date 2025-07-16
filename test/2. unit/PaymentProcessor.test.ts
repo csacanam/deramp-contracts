@@ -458,7 +458,7 @@ describe("PaymentProcessor", function () {
 
             // Verify commerce balance was reduced by the full paid amount
             const newCommerceBalance = await storage.balances(await commerce1.getAddress(), await mockToken1.getAddress());
-            // Debe quedar igual al commerceAmount de la segunda transacción
+            // The final balance should be 196 USDC (two payments) minus 100 USDC (refund) = 96 USDC
             const feePercent = await storage.commerceFees(await commerce1.getAddress()) || await storage.defaultFeePercent();
             const serviceFee = paymentAmount * feePercent / 10000n;
             const expectedBalance = (paymentAmount - serviceFee) * 2n - paymentAmount;
