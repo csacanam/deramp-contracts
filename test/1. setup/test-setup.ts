@@ -29,8 +29,8 @@ export async function setupTest(): Promise<TestContext> {
 
   // Deploy mock ERC20 tokens
   const MockERC20 = await ethers.getContractFactory('MockERC20');
-  const mockToken1 = await MockERC20.deploy('Mock Token 1', 'MTK1', 18);
-  const mockToken2 = await MockERC20.deploy('Mock Token 2', 'MTK2', 18);
+  const mockToken1 = await MockERC20.deploy('Mock Token 1', 'MTK1', 6);
+  const mockToken2 = await MockERC20.deploy('Mock Token 2', 'MTK2', 6);
 
   // Deploy storage
   const DerampStorage = await ethers.getContractFactory('DerampStorage');

@@ -33,7 +33,7 @@ describe("InvoiceManager", function () {
             const paymentOptions = [
                 {
                     token: await mockToken1.getAddress(),
-                    amount: ethers.parseEther("100")
+                    amount: ethers.parseUnits("100", 6)
                 }
             ];
 
@@ -61,7 +61,7 @@ describe("InvoiceManager", function () {
             
             const paymentOptions = [{
                 token: await mockToken1.getAddress(),
-                amount: ethers.parseEther("100")
+                amount: ethers.parseUnits("100", 6)
             }];
 
             // Create first invoice
@@ -89,7 +89,7 @@ describe("InvoiceManager", function () {
             
             const paymentOptions = [{
                 token: await mockToken1.getAddress(),
-                amount: ethers.parseEther("100")
+                amount: ethers.parseUnits("100", 6)
             }];
 
             await expect(
@@ -108,7 +108,7 @@ describe("InvoiceManager", function () {
             
             const paymentOptions = [{
                 token: await user1.getAddress(), // Not whitelisted token
-                amount: ethers.parseEther("100")
+                amount: ethers.parseUnits("100", 6)
             }];
 
             await expect(
@@ -127,7 +127,7 @@ describe("InvoiceManager", function () {
             
             const paymentOptions = [{
                 token: await mockToken2.getAddress(), // Not whitelisted for commerce1
-                amount: ethers.parseEther("100")
+                amount: ethers.parseUnits("100", 6)
             }];
 
             await expect(
@@ -181,7 +181,7 @@ describe("InvoiceManager", function () {
             
             const paymentOptions = [{
                 token: await mockToken1.getAddress(),
-                amount: ethers.parseEther("100")
+                amount: ethers.parseUnits("100", 6)
             }];
 
             await expect(
@@ -192,6 +192,66 @@ describe("InvoiceManager", function () {
                     expiresAt
                 )
             ).to.be.revertedWith("InvoiceManager call failed");
+        });
+
+        it("should allow backend to create invoice", async function () {
+            const { backend } = context;
+            const invoiceId = ethers.keccak256(ethers.toUtf8Bytes("invoice-backend"));
+            const expiresAt = Math.floor(Date.now() / 1000) + 3600;
+            const paymentOptions = [
+                {
+                    token: await mockToken1.getAddress(),
+                    amount: ethers.parseUnits("100", 6)
+                }
+            ];
+            await expect(
+                proxy.connect(backend).createInvoice(
+                    invoiceId,
+                    await commerce1.getAddress(),
+                    paymentOptions,
+                    expiresAt
+                )
+            ).to.emit(invoiceManager, "InvoiceCreated")
+             .withArgs(invoiceId, await commerce1.getAddress());
+        });
+
+        it("should allow commerce to create invoice", async function () {
+            const invoiceId = ethers.keccak256(ethers.toUtf8Bytes("invoice-commerce"));
+            const expiresAt = Math.floor(Date.now() / 1000) + 3600;
+            const paymentOptions = [
+                {
+                    token: await mockToken1.getAddress(),
+                    amount: ethers.parseUnits("100", 6)
+                }
+            ];
+            await expect(
+                proxy.connect(commerce1).createInvoice(
+                    invoiceId,
+                    await commerce1.getAddress(),
+                    paymentOptions,
+                    expiresAt
+                )
+            ).to.emit(invoiceManager, "InvoiceCreated")
+             .withArgs(invoiceId, await commerce1.getAddress());
+        });
+
+        it("should not allow unauthorized user to create invoice", async function () {
+            const invoiceId = ethers.keccak256(ethers.toUtf8Bytes("invoice-unauth"));
+            const expiresAt = Math.floor(Date.now() / 1000) + 3600;
+            const paymentOptions = [
+                {
+                    token: await mockToken1.getAddress(),
+                    amount: ethers.parseUnits("100", 6)
+                }
+            ];
+            await expect(
+                proxy.connect(user1).createInvoice(
+                    invoiceId,
+                    await commerce1.getAddress(),
+                    paymentOptions,
+                    expiresAt
+                )
+            ).to.be.revertedWith("Not authorized");
         });
     });
 
@@ -205,7 +265,7 @@ describe("InvoiceManager", function () {
             
             const paymentOptions = [{
                 token: await mockToken1.getAddress(),
-                amount: ethers.parseEther("100")
+                amount: ethers.parseUnits("100", 6)
             }];
 
             await proxy.createInvoice(
@@ -244,6 +304,56 @@ describe("InvoiceManager", function () {
                 proxy.cancelInvoice(invoiceId)
             ).to.be.revertedWith("InvoiceManager call failed");
         });
+
+        it("should allow backend to cancel invoice", async function () {
+            await expect(
+                proxy.connect(context.backend).cancelInvoice(invoiceId)
+            ).to.emit(invoiceManager, "InvoiceCancelled")
+              .withArgs(invoiceId, await commerce1.getAddress());
+
+            const invoice = await invoiceManager.getInvoice(invoiceId);
+            expect(invoice.status).to.equal(3); // EXPIRED
+            expect(invoice.expiredAt).to.be.gt(0);
+        });
+
+        it("should allow commerce to cancel its own invoice", async function () {
+            await expect(
+                proxy.connect(commerce1).cancelInvoice(invoiceId)
+            ).to.emit(invoiceManager, "InvoiceCancelled")
+              .withArgs(invoiceId, await commerce1.getAddress());
+
+            const invoice = await invoiceManager.getInvoice(invoiceId);
+            expect(invoice.status).to.equal(3); // EXPIRED
+            expect(invoice.expiredAt).to.be.gt(0);
+        });
+
+        it("should not allow unauthorized user to cancel invoice", async function () {
+            await expect(
+                proxy.connect(user1).cancelInvoice(invoiceId)
+            ).to.be.revertedWith("Not authorized");
+        });
+
+        it("should not allow commerce to cancel another commerce invoice", async function () {
+            // Create invoice for commerce2
+            const invoiceId2 = ethers.keccak256(ethers.toUtf8Bytes("invoice-commerce2"));
+            const expiresAt2 = Math.floor(Date.now() / 1000) + 3600;
+            const paymentOptions = [{
+                token: await mockToken1.getAddress(),
+                amount: ethers.parseUnits("100", 6)
+            }];
+
+            await proxy.createInvoice(
+                invoiceId2,
+                await commerce2.getAddress(),
+                paymentOptions,
+                expiresAt2
+            );
+
+            // Try to cancel from commerce1
+            await expect(
+                proxy.connect(commerce1).cancelInvoice(invoiceId2)
+            ).to.be.revertedWith("Not authorized");
+        });
     });
 
     describe("Invoice Queries", function () {
@@ -261,7 +371,7 @@ describe("InvoiceManager", function () {
 
             const paymentOptions = [{
                 token: await mockToken1.getAddress(),
-                amount: ethers.parseEther("100")
+                amount: ethers.parseUnits("100", 6)
             }];
 
             await proxy.createInvoice(
@@ -302,7 +412,7 @@ describe("InvoiceManager", function () {
             
             expect(paymentOptions.length).to.equal(1);
             expect(paymentOptions[0].token).to.equal(await mockToken1.getAddress());
-            expect(paymentOptions[0].amount).to.equal(ethers.parseEther("100"));
+            expect(paymentOptions[0].amount).to.equal(ethers.parseUnits("100", 6));
         });
 
         it("should get commerce invoices correctly", async function () {
@@ -374,7 +484,7 @@ describe("InvoiceManager", function () {
             
             const paymentOptions = [{
                 token: await mockToken1.getAddress(),
-                amount: ethers.parseEther("100")
+                amount: ethers.parseUnits("100", 6)
             }];
 
             await proxy.createInvoice(
@@ -427,7 +537,7 @@ describe("InvoiceManager", function () {
 
             const paymentOptions = [{
                 token: await mockToken1.getAddress(),
-                amount: ethers.parseEther("100")
+                amount: ethers.parseUnits("100", 6)
             }];
 
             // Create invoices
@@ -502,7 +612,7 @@ describe("InvoiceManager", function () {
             
             const paymentOptions = [{
                 token: await mockToken1.getAddress(),
-                amount: ethers.parseEther("100")
+                amount: ethers.parseUnits("100", 6)
             }];
 
             // Try to call directly (should fail)
@@ -522,7 +632,7 @@ describe("InvoiceManager", function () {
             
             const paymentOptions = [{
                 token: await mockToken1.getAddress(),
-                amount: ethers.parseEther("100")
+                amount: ethers.parseUnits("100", 6)
             }];
 
             await proxy.createInvoice(
@@ -547,11 +657,11 @@ describe("InvoiceManager", function () {
             const paymentOptions = [
                 {
                     token: await mockToken1.getAddress(),
-                    amount: ethers.parseEther("100")
+                    amount: ethers.parseUnits("100", 6)
                 },
                 {
                     token: await mockToken1.getAddress(), // Same token, different amount
-                    amount: ethers.parseEther("200")
+                    amount: ethers.parseUnits("200", 6)
                 }
             ];
 
@@ -564,8 +674,8 @@ describe("InvoiceManager", function () {
 
             const storedOptions = await invoiceManager.getInvoicePaymentOptions(invoiceId);
             expect(storedOptions.length).to.equal(2);
-            expect(storedOptions[0].amount).to.equal(ethers.parseEther("100"));
-            expect(storedOptions[1].amount).to.equal(ethers.parseEther("200"));
+            expect(storedOptions[0].amount).to.equal(ethers.parseUnits("100", 6));
+            expect(storedOptions[1].amount).to.equal(ethers.parseUnits("200", 6));
         });
 
         it("should handle expired timestamp correctly", async function () {
@@ -574,7 +684,7 @@ describe("InvoiceManager", function () {
             
             const paymentOptions = [{
                 token: await mockToken1.getAddress(),
-                amount: ethers.parseEther("100")
+                amount: ethers.parseUnits("100", 6)
             }];
 
             // Should still create invoice even with expired timestamp
