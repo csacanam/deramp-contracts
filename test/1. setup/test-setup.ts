@@ -10,23 +10,27 @@ export interface TestContext {
   paymentProcessor: any;
   withdrawalManager: any;
   treasuryManager: any;
-  //yieldManager: any;
   admin: Signer;
-  commerce: Signer;
-  user: Signer;
   backend: Signer;
   treasury: Signer;
   tokenManager: Signer;
   onboarding: Signer;
-  token: any;
+  // Additional variables for comprehensive testing
+  mockToken1: any;
+  mockToken2: any;
+  commerce1: Signer;
+  commerce2: Signer;
+  user1: Signer;
+  user2: Signer;
 }
 
 export async function setupTest(): Promise<TestContext> {
-  const [admin, commerce, user, backend, treasury, tokenManager, onboarding] = await ethers.getSigners();
+  const [admin, backend, treasury, tokenManager, onboarding, user1, user2, commerce1, commerce2] = await ethers.getSigners();
 
-  // Deploy a mock ERC20 token
+  // Deploy mock ERC20 tokens
   const MockERC20 = await ethers.getContractFactory('MockERC20');
-  const token = await MockERC20.deploy('Test Token', 'TTK', 18);
+  const mockToken1 = await MockERC20.deploy('Mock Token 1', 'MTK1', 18);
+  const mockToken2 = await MockERC20.deploy('Mock Token 2', 'MTK2', 18);
 
   // Deploy storage
   const DerampStorage = await ethers.getContractFactory('DerampStorage');
@@ -105,8 +109,15 @@ export async function setupTest(): Promise<TestContext> {
   await accessManager.grantRole(BACKEND_OPERATOR_ROLE, await backend.getAddress());
   
   // Note: Whitelist management is done directly through AccessManager for security
-  await accessManager.addTokenToWhitelist(await token.getAddress());
-  await accessManager.addCommerceToWhitelist(await commerce.getAddress());
+  await accessManager.addTokenToWhitelist(await mockToken1.getAddress());
+  await accessManager.addTokenToWhitelist(await mockToken2.getAddress());
+  
+  await accessManager.addCommerceToWhitelist(await commerce1.getAddress());
+  await accessManager.addCommerceToWhitelist(await commerce2.getAddress());
+
+  // Add tokens to commerce whitelists
+  await accessManager.addTokenToCommerceWhitelist(await commerce1.getAddress(), [await mockToken1.getAddress()]);
+  await accessManager.addTokenToCommerceWhitelist(await commerce2.getAddress(), [await mockToken1.getAddress(), await mockToken2.getAddress()]);
 
   return {
     proxy,
@@ -117,12 +128,15 @@ export async function setupTest(): Promise<TestContext> {
     withdrawalManager,
     treasuryManager,
     admin,
-    commerce,
-    user,
     backend,
     treasury,
     tokenManager,
     onboarding,
-    token,
+    mockToken1,
+    mockToken2,
+    commerce1,
+    commerce2,
+    user1,
+    user2,
   };
 } 
