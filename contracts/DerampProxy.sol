@@ -261,6 +261,14 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
     function withdraw(
         address token
     ) external whenNotPaused nonReentrant onlyRegisteredCommerce {
+        // Get balance before withdrawal
+        uint256 amount = IDerampStorage(storageContract).balances(
+            msg.sender,
+            token
+        );
+        require(amount > 0, "No funds to withdraw [PX]");
+
+        // Delegate to WithdrawalManager to update balances
         _delegateToWithdrawalManager(
             abi.encodeWithSignature(
                 "withdraw(address,address)",
@@ -268,11 +276,33 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
                 token
             )
         );
+
+        // Transfer tokens from proxy to commerce
+        IERC20(token).safeTransfer(msg.sender, amount);
     }
 
     function withdrawAll(
         address[] calldata tokens
     ) external whenNotPaused nonReentrant onlyRegisteredCommerce {
+        require(tokens.length > 0, "No tokens provided [PX]");
+
+        // Get amounts before withdrawal
+        uint256[] memory amounts = new uint256[](tokens.length);
+        uint256 totalWithdrawn = 0;
+
+        for (uint256 i = 0; i < tokens.length; i++) {
+            amounts[i] = IDerampStorage(storageContract).balances(
+                msg.sender,
+                tokens[i]
+            );
+            if (amounts[i] > 0) {
+                totalWithdrawn++;
+            }
+        }
+
+        require(totalWithdrawn > 0, "No funds to withdraw [PX]");
+
+        // Delegate to WithdrawalManager to update balances
         _delegateToWithdrawalManager(
             abi.encodeWithSignature(
                 "withdrawAll(address,address[])",
@@ -280,6 +310,13 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
                 tokens
             )
         );
+
+        // Transfer tokens from proxy to commerce
+        for (uint256 i = 0; i < tokens.length; i++) {
+            if (amounts[i] > 0) {
+                IERC20(tokens[i]).safeTransfer(msg.sender, amounts[i]);
+            }
+        }
     }
 
     function withdrawTo(
@@ -287,6 +324,15 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         uint256 amount,
         address to
     ) external whenNotPaused nonReentrant onlyRegisteredCommerce {
+        require(amount > 0, "Amount must be greater than 0 [PX]");
+        require(to != address(0), "Invalid recipient [PX]");
+        require(
+            IDerampStorage(storageContract).balances(msg.sender, token) >=
+                amount,
+            "Insufficient balance [PX]"
+        );
+
+        // Delegate to WithdrawalManager to update balances
         _delegateToWithdrawalManager(
             abi.encodeWithSignature(
                 "withdrawTo(address,address,uint256,address)",
@@ -296,6 +342,9 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
                 to
             )
         );
+
+        // Transfer tokens from proxy to recipient
+        IERC20(token).safeTransfer(to, amount);
     }
 
     // === TREASURY MANAGER FUNCTIONS ===

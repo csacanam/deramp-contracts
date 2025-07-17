@@ -56,9 +56,6 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
         // Update balance
         storageContract.subtractFromBalance(commerce, token, amount);
 
-        // Transfer tokens
-        IERC20(token).safeTransfer(commerce, amount);
-
         // Create withdrawal record
         IDerampStorage.WithdrawalRecord memory record = IDerampStorage
             .WithdrawalRecord({
@@ -74,6 +71,7 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
         uint256 index = storageContract.addWithdrawalRecord(record);
         storageContract.addCommerceWithdrawal(commerce, index);
 
+        // Token transfer handled by proxy
         emit IDerampStorage.Withdrawn(commerce, token, amount);
     }
 
@@ -95,9 +93,6 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
             // Update balance
             storageContract.subtractFromBalance(commerce, token, amount);
 
-            // Transfer tokens
-            IERC20(token).safeTransfer(commerce, amount);
-
             // Create withdrawal record
             IDerampStorage.WithdrawalRecord memory record = IDerampStorage
                 .WithdrawalRecord({
@@ -113,6 +108,7 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
             uint256 index = storageContract.addWithdrawalRecord(record);
             storageContract.addCommerceWithdrawal(commerce, index);
 
+            // Token transfer handled by proxy
             emit IDerampStorage.Withdrawn(commerce, token, amount);
             totalWithdrawn++;
         }
@@ -136,9 +132,6 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
         // Update balance
         storageContract.subtractFromBalance(commerce, token, amount);
 
-        // Transfer tokens
-        IERC20(token).safeTransfer(to, amount);
-
         // Create withdrawal record
         IDerampStorage.WithdrawalRecord memory record = IDerampStorage
             .WithdrawalRecord({
@@ -153,6 +146,7 @@ contract WithdrawalManager is Pausable, IWithdrawalManager {
 
         storageContract.addWithdrawalRecord(record);
 
+        // Token transfer handled by proxy
         emit IDerampStorage.CommerceWithdrawal(commerce, token, amount);
     }
 
