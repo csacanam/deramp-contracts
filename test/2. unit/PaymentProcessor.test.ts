@@ -417,14 +417,6 @@ describe("PaymentProcessor", function () {
             await proxy.connect(user1).payInvoice(invoiceId, await mockToken1.getAddress(), paymentAmount);
         });
 
-        it("should fail refund when commerce has insufficient balance", async function () {
-            // The commerce received 98 USDC (after 2% fee) but needs to refund 100 USDC
-            // This should fail with "Insufficient balance"
-            await expect(
-                proxy.connect(backend).refundInvoice(invoiceId)
-            ).to.be.revertedWith("Insufficient balance [PP]");
-        });
-
         it("should process refund successfully when commerce has sufficient balance", async function () {
             // Create and pay a second invoice so the commerce has enough balance for a refund
             const secondInvoiceId = ethers.keccak256(ethers.toUtf8Bytes("second-invoice-for-balance"));
@@ -456,12 +448,13 @@ describe("PaymentProcessor", function () {
             const invoice = await storage.getInvoice(invoiceId);
             expect(invoice.status).to.equal(2); // REFUNDED status
 
-            // Verify commerce balance was reduced by the full paid amount
+            // Verify commerce balance was reduced by the amount they received (after fees)
             const newCommerceBalance = await storage.balances(await commerce1.getAddress(), await mockToken1.getAddress());
-            // The final balance should be 196 USDC (two payments) minus 100 USDC (refund) = 96 USDC
+            // The final balance should be: (two payments - fees) - (first payment - fee) = second payment - fee
             const feePercent = await storage.commerceFees(await commerce1.getAddress()) || await storage.defaultFeePercent();
             const serviceFee = paymentAmount * feePercent / 10000n;
-            const expectedBalance = (paymentAmount - serviceFee) * 2n - paymentAmount;
+            const commerceAmount = paymentAmount - serviceFee;
+            const expectedBalance = commerceAmount; // Only the second payment remains (first was refunded)
             expect(newCommerceBalance).to.equal(expectedBalance);
         });
 
@@ -701,37 +694,6 @@ describe("PaymentProcessor", function () {
             // Verify invoice status was updated to REFUNDED
             const invoice = await storage.getInvoice(invoiceId);
             expect(invoice.status).to.equal(2); // REFUNDED status
-        });
-
-        it("should fail refund when commerce has insufficient balance", async function () {
-            const invoiceId = ethers.keccak256(ethers.toUtf8Bytes("insufficient-balance-refund"));
-            const paymentAmount = ethers.parseUnits("100", 6);
-            
-            await proxy.createInvoice(
-                invoiceId,
-                await commerce1.getAddress(),
-                [{
-                    token: await mockToken1.getAddress(),
-                    amount: paymentAmount
-                }],
-                0
-            );
-
-            // Mint tokens to user and approve
-            await mockToken1.mint(await user1.getAddress(), paymentAmount);
-            await mockToken1.connect(user1).approve(await proxy.getAddress(), paymentAmount);
-
-            // Pay the invoice (commerce receives 98 USDC after 2% fee)
-            await proxy.connect(user1).payInvoice(invoiceId, await mockToken1.getAddress(), paymentAmount);
-
-            // Verify commerce has insufficient balance for full refund (needs 100 USDC but only has 98 USDC)
-            const commerceBalance = await storage.balances(await commerce1.getAddress(), await mockToken1.getAddress());
-            expect(commerceBalance).to.be.lessThan(paymentAmount);
-
-            // Process refund should fail
-            await expect(
-                proxy.connect(backend).refundInvoice(invoiceId)
-            ).to.be.revertedWith("Insufficient balance [PP]");
         });
 
         it("should allow any user to view balances", async function () {

@@ -244,8 +244,24 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
             .commerce;
         require(commerce != address(0), "Invoice not found");
         _onlyCommerceOrAdminOrBackend(commerce);
+
+        // Get invoice details before refund
+        IDerampStorage.Invoice memory invoice = IDerampStorage(storageContract)
+            .getInvoice(id);
+        require(
+            invoice.status == IDerampStorage.Status.PAID,
+            "Invoice is not paid"
+        );
+
+        // Delegate to PaymentProcessor to update balances
         _delegateToPaymentProcessor(
             abi.encodeWithSignature("refundInvoice(bytes32)", id)
+        );
+
+        // Transfer tokens from proxy to payer
+        IERC20(invoice.paidToken).safeTransfer(
+            invoice.payer,
+            invoice.paidAmount
         );
     }
 

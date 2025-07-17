@@ -143,21 +143,35 @@ contract PaymentProcessor is Pausable, IPaymentProcessor {
             "Invoice is not paid [PP]"
         );
 
-        // Calculate refund amount (only what the commerce received, not the full paid amount)
-        uint256 refundAmount = invoice.paidAmount;
+        // Calculate refund amounts
+        uint256 commerceRefundAmount = invoice.paidAmount - invoice.serviceFee; // What commerce received
+        uint256 serviceFeeRefundAmount = invoice.serviceFee; // Service fee to refund
 
         // Check commerce balance
         require(
             storageContract.balances(invoice.commerce, invoice.paidToken) >=
-                refundAmount,
+                commerceRefundAmount,
             "Insufficient balance [PP]"
+        );
+
+        // Check service fee balance
+        require(
+            storageContract.serviceFeeBalances(invoice.paidToken) >=
+                serviceFeeRefundAmount,
+            "Insufficient service fee balance [PP]"
         );
 
         // Update commerce balance
         storageContract.subtractFromBalance(
             invoice.commerce,
             invoice.paidToken,
-            refundAmount
+            commerceRefundAmount
+        );
+
+        // Update service fee balance
+        storageContract.subtractServiceFeeBalance(
+            invoice.paidToken,
+            serviceFeeRefundAmount
         );
 
         // Update invoice
@@ -171,7 +185,7 @@ contract PaymentProcessor is Pausable, IPaymentProcessor {
             invoiceId,
             invoice.payer,
             invoice.paidToken,
-            refundAmount
+            invoice.paidAmount
         );
     }
 
