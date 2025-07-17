@@ -351,6 +351,13 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         address token,
         address to
     ) external onlyTreasuryManagerOrAdmin whenNotPaused {
+        // Get service fee balance before withdrawal
+        uint256 amount = IDerampStorage(storageContract).getServiceFeeBalance(
+            token
+        );
+        require(amount > 0, "No service fees to withdraw [PX]");
+
+        // Delegate to TreasuryManager to update balances
         _delegateToTreasuryManager(
             abi.encodeWithSignature(
                 "withdrawServiceFeesToTreasury(address,address)",
@@ -358,12 +365,33 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
                 to
             )
         );
+
+        // Transfer tokens from proxy to treasury
+        IERC20(token).safeTransfer(to, amount);
     }
 
     function withdrawAllServiceFeesToTreasury(
         address[] calldata tokens,
         address to
     ) external onlyTreasuryManagerOrAdmin whenNotPaused {
+        require(tokens.length > 0, "No tokens provided [PX]");
+
+        // Get amounts before withdrawal
+        uint256[] memory amounts = new uint256[](tokens.length);
+        uint256 totalWithdrawn = 0;
+
+        for (uint256 i = 0; i < tokens.length; i++) {
+            amounts[i] = IDerampStorage(storageContract).getServiceFeeBalance(
+                tokens[i]
+            );
+            if (amounts[i] > 0) {
+                totalWithdrawn++;
+            }
+        }
+
+        require(totalWithdrawn > 0, "No service fees to withdraw [PX]");
+
+        // Delegate to TreasuryManager to update balances
         _delegateToTreasuryManager(
             abi.encodeWithSignature(
                 "withdrawAllServiceFeesToTreasury(address[],address)",
@@ -371,17 +399,52 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
                 to
             )
         );
+
+        // Transfer tokens from proxy to treasury
+        for (uint256 i = 0; i < tokens.length; i++) {
+            if (amounts[i] > 0) {
+                IERC20(tokens[i]).safeTransfer(to, amounts[i]);
+            }
+        }
     }
 
-    function withdrawAllServiceFeesToTreasury(
+    function withdrawAllServiceFeesToTreasuryAll(
         address to
     ) external onlyTreasuryManagerOrAdmin whenNotPaused {
+        // Get all whitelisted tokens
+        address[] memory whitelistedTokens = IDerampStorage(storageContract)
+            .getWhitelistedTokens();
+        require(whitelistedTokens.length > 0, "No whitelisted tokens [PX]");
+
+        // Get amounts before withdrawal
+        uint256[] memory amounts = new uint256[](whitelistedTokens.length);
+        uint256 totalWithdrawn = 0;
+
+        for (uint256 i = 0; i < whitelistedTokens.length; i++) {
+            amounts[i] = IDerampStorage(storageContract).getServiceFeeBalance(
+                whitelistedTokens[i]
+            );
+            if (amounts[i] > 0) {
+                totalWithdrawn++;
+            }
+        }
+
+        require(totalWithdrawn > 0, "No service fees to withdraw [PX]");
+
+        // Delegate to TreasuryManager to update balances
         _delegateToTreasuryManager(
             abi.encodeWithSignature(
                 "withdrawAllServiceFeesToTreasury(address)",
                 to
             )
         );
+
+        // Transfer tokens from proxy to treasury
+        for (uint256 i = 0; i < whitelistedTokens.length; i++) {
+            if (amounts[i] > 0) {
+                IERC20(whitelistedTokens[i]).safeTransfer(to, amounts[i]);
+            }
+        }
     }
 
     // === YIELD MANAGER FUNCTIONS ===

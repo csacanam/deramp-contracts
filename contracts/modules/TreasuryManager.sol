@@ -108,8 +108,22 @@ contract TreasuryManager is Pausable, ITreasuryManager {
         require(amount > 0, "No service fees to withdraw [TM]");
 
         storageContract.subtractServiceFeeBalance(token, amount);
-        IERC20(token).safeTransfer(to, amount);
 
+        // Record the withdrawal
+        IDerampStorage.WithdrawalRecord memory record = IDerampStorage
+            .WithdrawalRecord({
+                token: token,
+                amount: amount,
+                to: to,
+                initiatedBy: msg.sender,
+                withdrawalType: IDerampStorage.WithdrawalType.SERVICE_FEE,
+                createdAt: block.timestamp,
+                invoiceId: bytes32(0)
+            });
+        uint256 withdrawalIndex = storageContract.addWithdrawalRecord(record);
+        storageContract.addServiceFeeWithdrawal(withdrawalIndex);
+
+        // Token transfer handled by proxy
         emit IDerampStorage.ServiceFeeWithdrawn(token, amount, to);
     }
 
@@ -129,7 +143,26 @@ contract TreasuryManager is Pausable, ITreasuryManager {
             uint256 amount = storageContract.getServiceFeeBalance(tokens[i]);
             if (amount > 0) {
                 storageContract.subtractServiceFeeBalance(tokens[i], amount);
-                IERC20(tokens[i]).safeTransfer(to, amount);
+
+                // Record the withdrawal
+                IDerampStorage.WithdrawalRecord memory record = IDerampStorage
+                    .WithdrawalRecord({
+                        token: tokens[i],
+                        amount: amount,
+                        to: to,
+                        initiatedBy: msg.sender,
+                        withdrawalType: IDerampStorage
+                            .WithdrawalType
+                            .SERVICE_FEE,
+                        createdAt: block.timestamp,
+                        invoiceId: bytes32(0)
+                    });
+                uint256 withdrawalIndex = storageContract.addWithdrawalRecord(
+                    record
+                );
+                storageContract.addServiceFeeWithdrawal(withdrawalIndex);
+
+                // Token transfer handled by proxy
                 emit IDerampStorage.ServiceFeeWithdrawn(tokens[i], amount, to);
                 totalWithdrawn++;
             }
@@ -161,7 +194,26 @@ contract TreasuryManager is Pausable, ITreasuryManager {
                     whitelistedTokens[i],
                     amount
                 );
-                IERC20(whitelistedTokens[i]).safeTransfer(to, amount);
+
+                // Record the withdrawal
+                IDerampStorage.WithdrawalRecord memory record = IDerampStorage
+                    .WithdrawalRecord({
+                        token: whitelistedTokens[i],
+                        amount: amount,
+                        to: to,
+                        initiatedBy: msg.sender,
+                        withdrawalType: IDerampStorage
+                            .WithdrawalType
+                            .SERVICE_FEE,
+                        createdAt: block.timestamp,
+                        invoiceId: bytes32(0)
+                    });
+                uint256 withdrawalIndex = storageContract.addWithdrawalRecord(
+                    record
+                );
+                storageContract.addServiceFeeWithdrawal(withdrawalIndex);
+
+                // Token transfer handled by proxy
                 emit IDerampStorage.ServiceFeeWithdrawn(
                     whitelistedTokens[i],
                     amount,
