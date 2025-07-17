@@ -7,7 +7,7 @@ pragma solidity ^0.8.20;
  *
  * @dev Responsibilities:
  * - Exposes a unified API for all business logic modules (managers).
- * - Delegates calls to the appropriate manager contract (AccessManager, InvoiceManager, PaymentProcessor, WithdrawalManager, TreasuryManager, YieldManager).
+ * - Delegates calls to the appropriate manager contract (AccessManager, InvoiceManager, PaymentProcessor, WithdrawalManager, TreasuryManager).
  * - Handles module upgrades via setter functions (setXManager).
  * - Enforces access control and pausing at the proxy level.
  *
@@ -37,7 +37,6 @@ import "./interfaces/IInvoiceManager.sol";
 import "./interfaces/IPaymentProcessor.sol";
 import "./interfaces/IWithdrawalManager.sol";
 import "./interfaces/ITreasuryManager.sol";
-import "./interfaces/IYieldManager.sol";
 
 contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -48,7 +47,6 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
     address public paymentProcessor;
     address public withdrawalManager;
     address public treasuryManager;
-    address public yieldManager;
 
     // Emergency controls
     event Emergency(string reason);
@@ -179,11 +177,6 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
             _treasuryManager
         );
         treasuryManager = _treasuryManager;
-    }
-
-    function setYieldManager(address _yieldManager) external onlyOwner {
-        emit ModuleUpdated("yieldManager", yieldManager, _yieldManager);
-        yieldManager = _yieldManager;
     }
 
     // === EMERGENCY CONTROLS ===
@@ -496,73 +489,6 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         }
     }
 
-    // === YIELD MANAGER FUNCTIONS ===
-    /**
-     * @notice Returns the principal (deposited amount) in yield for the caller and token.
-     */
-    function getYieldPrincipal(address token) external view returns (uint256) {
-        if (yieldManager == address(0)) return 0;
-        return IYieldManager(yieldManager).getYieldPrincipal(msg.sender, token);
-    }
-
-    /**
-     * @notice Returns the yield (interest) earned for the caller and token.
-     */
-    function getYieldEarned(address token) external view returns (uint256) {
-        if (yieldManager == address(0)) return 0;
-        return IYieldManager(yieldManager).getYieldEarned(msg.sender, token);
-    }
-
-    /**
-     * @notice Returns the total balance in yield (principal + interest) for the caller and token.
-     */
-    function getYieldBalance(address token) external view returns (uint256) {
-        if (yieldManager == address(0)) return 0;
-        return IYieldManager(yieldManager).getYieldBalance(msg.sender, token);
-    }
-
-    /**
-     * @notice Returns the current APY for a given token.
-     */
-    function getAPY(address token) external view returns (uint256) {
-        if (yieldManager == address(0)) return 0;
-        return IYieldManager(yieldManager).getAPY(token);
-    }
-
-    /**
-     * @notice Deposit tokens from the caller into yield.
-     */
-    function depositToYield(
-        address token,
-        uint256 amount
-    ) external onlyRegisteredCommerce whenNotPaused {
-        _delegateToYieldManager(
-            abi.encodeWithSignature(
-                "depositToYield(address,address,uint256)",
-                msg.sender,
-                token,
-                amount
-            )
-        );
-    }
-
-    /**
-     * @notice Withdraw tokens from yield back to the caller's available balance.
-     */
-    function withdrawFromYield(
-        address token,
-        uint256 amount
-    ) external onlyRegisteredCommerce whenNotPaused {
-        _delegateToYieldManager(
-            abi.encodeWithSignature(
-                "withdrawFromYield(address,address,uint256)",
-                msg.sender,
-                token,
-                amount
-            )
-        );
-    }
-
     // === COMPATIBILITY FUNCTIONS ===
 
     function supportsInterface(
@@ -614,12 +540,6 @@ contract DerampProxy is Ownable, Pausable, ReentrancyGuard {
         require(treasuryManager != address(0), "TreasuryManager not set");
         (bool success, ) = treasuryManager.call(data);
         require(success, "TreasuryManager call failed");
-    }
-
-    function _delegateToYieldManager(bytes memory data) internal {
-        require(yieldManager != address(0), "YieldManager not set");
-        (bool success, ) = yieldManager.call(data);
-        require(success, "YieldManager call failed");
     }
 
     // === FALLBACK ===

@@ -1,6 +1,6 @@
 # Deramp Smart Contracts
 
-> **Modular payment processing system for blockchain invoicing, treasury management, and yield farming**
+> **Modular payment processing system for blockchain invoicing, and treasury management**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Hardhat](https://img.shields.io/badge/Built%20with-Hardhat-FFDB1C.svg)](https://hardhat.org/)
@@ -8,7 +8,7 @@
 
 ## Overview
 
-Deramp is a production-ready, modular smart contract system designed for invoice management, payment processing, treasury operations, and yield farming. Built with security, scalability, and maintainability in mind.
+Deramp is a production-ready, modular smart contract system designed for invoice management, payment processing, and treasury operations. Built with security, scalability, and maintainability in mind.
 
 ### Key Features
 
@@ -18,7 +18,6 @@ Deramp is a production-ready, modular smart contract system designed for invoice
 - 🏦 **Treasury Management** - Automated fee collection and distribution
 - 📊 **Analytics & Reporting** - Comprehensive transaction tracking
 - ⚡ **Gas Optimized** - Efficient proxy pattern implementation
-- 🌱 **Yield Farming** - DeFi protocol integration for passive income
 - 🔄 **Upgradeable** - Module-based upgrades without data loss
 
 ## Quick Start
@@ -68,7 +67,6 @@ npx hardhat run scripts/deploy.ts --network mainnet
 | **PaymentProcessor**  | Payment processing and refunds         | ~21KB |
 | **WithdrawalManager** | Balance withdrawals and analytics      | ~18KB |
 | **TreasuryManager**   | Treasury operations and fee management | ~20KB |
-| **YieldManager**      | Yield farming and interest management  | ~19KB |
 
 ### System Flow
 
@@ -109,22 +107,6 @@ IERC20(token).approve(address(derampProxy), amount);
 
 // Process payment
 derampProxy.payInvoice(invoiceId, token, amount);
-```
-
-### Yield Farming
-
-```solidity
-// Deposit tokens to earn yield
-address token = USDC_ADDRESS;
-uint256 amount = 1000 * 10**6;
-
-derampProxy.depositToYield(commerce, token, amount);
-
-// Check yield earned
-uint256 yieldEarned = derampProxy.getYieldEarned(commerce, token);
-
-// Withdraw from yield
-derampProxy.withdrawFromYield(commerce, token, amount);
 ```
 
 ## Configuration
@@ -175,7 +157,6 @@ The system implements role-based access control with the following roles:
 - ✅ Input validation
 - ✅ Access control on all functions
 - ✅ Emergency controls
-- ✅ Yield security measures
 
 ### Audits
 

@@ -13,7 +13,7 @@
 
 ## Overview
 
-The Deramp Smart Contract System is a modular, proxy-based architecture designed for secure and efficient payment processing, invoice management, treasury operations, and yield farming. The system follows a microservices-like approach where each module handles specific business logic while maintaining data consistency through a centralized storage layer.
+The Deramp Smart Contract System is a modular, proxy-based architecture designed for secure and efficient payment processing, invoice management, and treasury operations. The system follows a microservices-like approach where each module handles specific business logic while maintaining data consistency through a centralized storage layer.
 
 ### Key Features
 
@@ -22,7 +22,6 @@ The Deramp Smart Contract System is a modular, proxy-based architecture designed
 - **Role-Based Access Control**: Granular permissions system
 - **Upgradeable Architecture**: Modules can be updated without data loss
 - **Event-Driven**: Comprehensive logging and monitoring
-- **Yield Integration**: Built-in support for DeFi yield farming
 
 ## Architectural Principles
 
@@ -35,7 +34,6 @@ Each module has a single, well-defined responsibility:
 - **PaymentProcessor**: Payment processing and refunds
 - **WithdrawalManager**: Balance withdrawals and analytics
 - **TreasuryManager**: Treasury operations and fee distribution
-- **YieldManager**: Yield farming and interest management
 
 ### 2. Single Point of Entry
 
@@ -130,16 +128,6 @@ The system defaults to restrictive permissions and requires explicit authorizati
   - Fee distribution to multiple wallets
   - Treasury withdrawal controls
 
-#### YieldManager
-
-- **Purpose**: Yield farming and interest management
-- **Pattern**: Strategy pattern
-- **Key Features**:
-  - DeFi protocol integration (Aave, Compound, etc.)
-  - Yield principal and interest tracking
-  - APY calculation and reporting
-  - Proportional yield distribution
-
 ## UML Diagrams
 
 ### System Architecture Diagram
@@ -163,7 +151,6 @@ graph TB
             PaymentProc[PaymentProcessor<br/>Payment Processing]
             WithdrawalMgr[WithdrawalManager<br/>Withdrawal Management]
             TreasuryMgr[TreasuryManager<br/>Treasury Operations]
-            YieldMgr[YieldManager<br/>Yield Farming]
         end
 
         subgraph "Data Layer"
@@ -176,7 +163,6 @@ graph TB
             IPaymentProc[IPaymentProcessor]
             IWithdrawalMgr[IWithdrawalManager]
             ITreasuryMgr[ITreasuryManager]
-            IYieldMgr[IYieldManager]
             IStorage[IDerampStorage]
         end
     end
@@ -198,28 +184,23 @@ graph TB
     Proxy -.->|delegatecall| PaymentProc
     Proxy -.->|delegatecall| WithdrawalMgr
     Proxy -.->|delegatecall| TreasuryMgr
-    Proxy -.->|delegatecall| YieldMgr
 
     AccessMgr --> Storage
     InvoiceMgr --> Storage
     PaymentProc --> Storage
     WithdrawalMgr --> Storage
     TreasuryMgr --> Storage
-    YieldMgr --> Storage
 
     AccessMgr -.-> IAccessMgr
     InvoiceMgr -.-> IInvoiceMgr
     PaymentProc -.-> IPaymentProc
     WithdrawalMgr -.-> IWithdrawalMgr
     TreasuryMgr -.-> ITreasuryMgr
-    YieldMgr -.-> IYieldMgr
     Storage -.-> IStorage
 
     PaymentProc --> ERC20
     WithdrawalMgr --> ERC20
     TreasuryMgr --> ERC20
-    YieldMgr --> ERC20
-    YieldMgr --> DeFi
     WithdrawalMgr --> Wallets
     TreasuryMgr --> Wallets
 ```
@@ -250,16 +231,6 @@ classDiagram
         +setWhitelistedCommerce(address, bool)
     }
 
-    class IYieldManager {
-        <<interface>>
-        +depositToYield(address, address, uint256)
-        +withdrawFromYield(address, address, uint256)
-        +getYieldPrincipal(address, address) uint256
-        +getYieldEarned(address, address) uint256
-        +getYieldBalance(address, address) uint256
-        +getAPY(address) uint256
-    }
-
     %% Main Proxy
     class DerampProxy {
         -address storageContract
@@ -268,14 +239,11 @@ classDiagram
         -address paymentProcessor
         -address withdrawalManager
         -address treasuryManager
-        -address yieldManager
         +constructor()
         +grantRole(bytes32, address)
         +createInvoice(bytes32, address, PaymentOption[], uint256)
         +payInvoice(bytes32, address, uint256)
         +withdrawBalance(address, uint256)
-        +depositToYield(address, address, uint256)
-        +withdrawFromYield(address, address, uint256)
         +pause()
         +unpause()
 
@@ -284,7 +252,6 @@ classDiagram
         -_delegateToPaymentProcessor(bytes)
         -_delegateToWithdrawalManager(bytes)
         -_delegateToTreasuryManager(bytes)
-        -_delegateToYieldManager(bytes)
     }
 
     %% Storage
@@ -372,18 +339,6 @@ classDiagram
         +getTreasuryWallets() address[]
     }
 
-    class YieldManager {
-        -DerampStorage storageContract
-        -IAccessManager accessManager
-        +constructor(address, address)
-        +depositToYield(address, address, uint256)
-        +withdrawFromYield(address, address, uint256)
-        +getYieldPrincipal(address, address) uint256
-        +getYieldEarned(address, address) uint256
-        +getYieldBalance(address, address) uint256
-        +getAPY(address) uint256
-    }
-
     %% OpenZeppelin Base
     class AccessControl {
         <<OpenZeppelin>>
@@ -403,12 +358,10 @@ classDiagram
     DerampProxy --> PaymentProcessor : delegates to
     DerampProxy --> WithdrawalManager : delegates to
     DerampProxy --> TreasuryManager : delegates to
-    DerampProxy --> YieldManager : delegates to
 
     AccessManager --|> AccessControl : inherits
     AccessManager ..|> IAccessManager : implements
     DerampStorage ..|> IDerampStorage : implements
-    YieldManager ..|> IYieldManager : implements
 
     InvoiceManager --> DerampStorage : reads/writes
     InvoiceManager --> IAccessManager : uses for auth
@@ -418,8 +371,6 @@ classDiagram
     WithdrawalManager --> IAccessManager : uses for auth
     TreasuryManager --> DerampStorage : reads/writes
     TreasuryManager --> IAccessManager : uses for auth
-    YieldManager --> DerampStorage : reads/writes
-    YieldManager --> IAccessManager : uses for auth
 
     AccessManager --> DerampStorage : reads/writes
 ```

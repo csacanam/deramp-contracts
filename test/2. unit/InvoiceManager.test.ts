@@ -688,6 +688,6 @@ describe("InvoiceManager", function () {
 
             const invoice = await invoiceManager.getInvoice(invoiceId);
             expect(invoice.expiresAt).to.equal(expiresAt);
-        });
     });
+  });
 }); 
