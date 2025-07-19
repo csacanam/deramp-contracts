@@ -1,0 +1,13 @@
+{
+  "network": "hardhat",
+  "networkName": "Hardhat Local Network",
+  "deployedAt": "2025-07-19T21:36:59.293Z",
+  "addresses": {
+    "proxy": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+    "accessManager": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+    "invoiceManager": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
+    "paymentProcessor": "0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9",
+    "treasuryManager": "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707",
+    "withdrawalManager": "0x0165878A594ca255338adfa4d48449f69242Eb8F"
+  }
+}

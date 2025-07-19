@@ -217,7 +217,7 @@ describe('Complete User Workflow', () => {
       const serviceFees1 = await storage.getServiceFeeBalance(await mockToken1.getAddress());
       const serviceFees2 = await storage.getServiceFeeBalance(await mockToken2.getAddress());
       
-      // Los service fees se calculan automáticamente (1% por defecto)
+      // Service fees are calculated automatically (1% by default)
       const expectedFee1 = amount1 * 100n / 10000n; // 1% fee
       const expectedFee2 = amount2 * 100n / 10000n; // 1% fee
       

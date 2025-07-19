@@ -2,37 +2,116 @@ import { ethers } from "hardhat";
 import * as fs from "fs";
 import * as path from "path";
 
-// Function to update config.ts with deployed addresses
-function updateConfigFile(deployedAddresses: any) {
+// Networks to deploy to
+const NETWORKS = {
+  // Local development
+  hardhat: "Hardhat Local Network",
+  
+  // Testnets
+  celoTestnet: "Celo Testnet (Alfajores)",
+  baseTestnet: "Base Testnet (Goerli)",
+  polygonTestnet: "Polygon Testnet (Mumbai)",
+  bscTestnet: "BSC Testnet",
+  
+  // Mainnets
+  celo: "Celo Mainnet",
+  base: "Base Mainnet",
+  polygon: "Polygon Mainnet",
+  bsc: "BSC Mainnet",
+};
+
+// Function to load base configuration
+function loadBaseConfig() {
   const configPath = path.join(__dirname, "config.ts");
   
-  // Read current config file
-  let configContent = fs.readFileSync(configPath, "utf8");
+  if (!fs.existsSync(configPath)) {
+    throw new Error("config.ts not found. Please create this file with your configuration.");
+  }
   
-  // Update contract addresses
-  const contractAddressesRegex = /export const CONTRACT_ADDRESSES = \{[\s\S]*?\};/;
-  const newContractAddresses = `export const CONTRACT_ADDRESSES = {
-  proxy: "${deployedAddresses.proxy}",
-  accessManager: "${deployedAddresses.accessManager}",
-  invoiceManager: "${deployedAddresses.invoiceManager}",
-  paymentProcessor: "${deployedAddresses.paymentProcessor}",
-  treasuryManager: "${deployedAddresses.treasuryManager}",
-  withdrawalManager: "${deployedAddresses.withdrawalManager}",
-};`;
+  // Validate required environment variables
+  if (!process.env.PRIVATE_KEY) {
+    throw new Error("PRIVATE_KEY environment variable not set. Please set it in your .env file.");
+  }
   
-  configContent = configContent.replace(contractAddressesRegex, newContractAddresses);
+  if (!process.env.ADMIN_WALLET) {
+    throw new Error("ADMIN_WALLET environment variable not set. Please set it in your .env file.");
+  }
   
-  // Write updated config back to file
-  fs.writeFileSync(configPath, configContent, "utf8");
+  // Validate optional backend wallet
+  const backendWallet = process.env.BACKEND_WALLET;
+  let normalizedBackendWallet = null;
   
-  console.log("✅ Config file updated with deployed addresses");
+  if (backendWallet) {
+    normalizedBackendWallet = backendWallet.startsWith('0x') 
+      ? backendWallet 
+      : '0x' + backendWallet;
+      
+    if (normalizedBackendWallet.length !== 42) {
+      throw new Error("BACKEND_WALLET must be a valid Ethereum address (40 hex characters, with or without 0x prefix).");
+    }
+  }
+  
+  // Additional validation for admin wallet format
+  const adminWallet = process.env.ADMIN_WALLET.startsWith('0x') 
+    ? process.env.ADMIN_WALLET 
+    : '0x' + process.env.ADMIN_WALLET;
+    
+  if (adminWallet.length !== 42) {
+    throw new Error("ADMIN_WALLET must be a valid Ethereum address (40 hex characters, with or without 0x prefix).");
+  }
+  
+  // Dynamic import of the base config file
+  const configModule = require(configPath);
+  return {
+    ADMIN_WALLET: adminWallet,
+    BACKEND_WALLET: normalizedBackendWallet,
+    PRODUCTION_TOKENS: configModule.PRODUCTION_TOKENS,
+    VALIDATION: configModule.VALIDATION
+  };
 }
 
-async function main() {
+// Function to save deployed addresses to a simple JSON file
+function saveDeployedAddresses(network: string, deployedAddresses: any) {
+  // Create deployed-addresses directory if it doesn't exist
+  const addressesDir = path.join(__dirname, '..', 'deployed-addresses');
+  if (!fs.existsSync(addressesDir)) {
+    fs.mkdirSync(addressesDir, { recursive: true });
+  }
+  
+  const addressesPath = path.join(addressesDir, `${network}-contract-addresses.json`);
+  
+  const addressesData = {
+    network: network,
+    networkName: NETWORKS[network as keyof typeof NETWORKS] || network,
+    deployedAt: new Date().toISOString(),
+    addresses: deployedAddresses
+  };
+  
+  fs.writeFileSync(addressesPath, JSON.stringify(addressesData, null, 2), "utf8");
+  console.log(`✅ Deployed addresses saved: deployed-addresses/${network}-contract-addresses.json`);
+}
+
+async function deployAndSetupToNetwork(network: string) {
+  console.log(`\n🚀 Deploying and setting up ${NETWORKS[network as keyof typeof NETWORKS]}...`);
+  
   try {
+    // Load base configuration
+    console.log("📋 Loading base configuration...");
+    const baseConfig = loadBaseConfig();
+    
+    // Validate admin wallet
+    if (!baseConfig.ADMIN_WALLET) {
+      throw new Error("Please edit config-base.ts and set ADMIN_WALLET address");
+    }
+    
+    console.log(`✅ Admin wallet: ${baseConfig.ADMIN_WALLET}`);
+
+    // Get the network provider
+    const provider = ethers.provider;
     const [deployer] = await ethers.getSigners();
-    console.log("🚀 Deploying Deramp system with account:", deployer.address);
-    console.log("Account balance:", (await ethers.provider.getBalance(deployer.address)).toString());
+    
+    console.log(`Account: ${deployer.address}`);
+    console.log(`Balance: ${ethers.formatEther(await provider.getBalance(deployer.address))} ETH`);
 
     // 1. Deploy DerampStorage
     console.log("\n📦 Deploying DerampStorage...");
@@ -128,8 +207,86 @@ async function main() {
     await storage.setModule("TreasuryManager", treasuryManagerAddress);
     console.log("✅ Storage modules authorized");
 
-    // 10. Update config file with deployed addresses
-    console.log("\n📝 Updating config file...");
+    // 10. Setup production configuration
+    console.log("\n🔧 Setting up production configuration...");
+    
+    // Define role constants
+    const ONBOARDING_ROLE = ethers.keccak256(ethers.toUtf8Bytes("ONBOARDING_ROLE"));
+    const TOKEN_MANAGER_ROLE = ethers.keccak256(ethers.toUtf8Bytes("TOKEN_MANAGER_ROLE"));
+    const TREASURY_MANAGER_ROLE = ethers.keccak256(ethers.toUtf8Bytes("TREASURY_MANAGER_ROLE"));
+    const BACKEND_OPERATOR_ROLE = ethers.keccak256(ethers.toUtf8Bytes("BACKEND_OPERATOR_ROLE"));
+
+    // Log backend wallet configuration
+    if (baseConfig.BACKEND_WALLET) {
+      console.log(`🔧 Backend wallet configured: ${baseConfig.BACKEND_WALLET}`);
+    } else {
+      console.log(`🔧 Backend wallet: not configured (BACKEND_OPERATOR_ROLE will not be assigned)`);
+    }
+
+    // Setup production tokens
+    console.log("🪙 Setting up production tokens...");
+    let tokensAdded = 0;
+    for (const tokenAddress of baseConfig.PRODUCTION_TOKENS) {
+      if (tokenAddress && tokenAddress !== baseConfig.VALIDATION.EMPTY_ADDRESS) {
+        try {
+          await accessManager.addTokenToWhitelist(tokenAddress);
+          console.log(`✅ Token added to whitelist: ${tokenAddress}`);
+          tokensAdded++;
+        } catch (error: any) {
+          console.log(`⚠️  Failed to add token ${tokenAddress}: ${error.message}`);
+        }
+      }
+    }
+    
+    if (tokensAdded === 0) {
+      console.log("⚠️  No production tokens configured");
+    }
+
+    // Setup treasury wallet (uses admin wallet by default)
+    console.log("🏦 Setting up treasury wallet...");
+    try {
+      await proxy.addTreasuryWallet(baseConfig.ADMIN_WALLET, "Main Treasury Wallet");
+      console.log(`✅ Treasury wallet added: ${baseConfig.ADMIN_WALLET}`);
+    } catch (error: any) {
+      console.log(`⚠️  Failed to add treasury wallet: ${error.message}`);
+    }
+
+    // 11. Transfer all roles to admin wallet and revoke from deployer
+    if (baseConfig.ADMIN_WALLET.toLowerCase() !== deployer.address.toLowerCase()) {
+      console.log("\n👑 Transferring roles to admin wallet...");
+      
+      const DEFAULT_ADMIN_ROLE = ethers.ZeroHash; // 0x00
+
+      // Grant all roles to admin wallet
+      await accessManager.grantRole(DEFAULT_ADMIN_ROLE, baseConfig.ADMIN_WALLET);
+      await accessManager.grantRole(ONBOARDING_ROLE, baseConfig.ADMIN_WALLET);
+      await accessManager.grantRole(TOKEN_MANAGER_ROLE, baseConfig.ADMIN_WALLET);
+      await accessManager.grantRole(TREASURY_MANAGER_ROLE, baseConfig.ADMIN_WALLET);
+      
+      // Grant backend operator role to appropriate wallet
+      if (baseConfig.BACKEND_WALLET) {
+        await accessManager.grantRole(BACKEND_OPERATOR_ROLE, baseConfig.BACKEND_WALLET);
+        console.log(`✅ Backend Operator role granted to: ${baseConfig.BACKEND_WALLET}`);
+      } else {
+        await accessManager.grantRole(BACKEND_OPERATOR_ROLE, baseConfig.ADMIN_WALLET);
+        console.log(`✅ Backend Operator role granted to: ${baseConfig.ADMIN_WALLET}`);
+      }
+      
+      console.log("✅ All roles granted to admin wallet");
+
+      // Revoke all roles from deployer
+      await accessManager.revokeRole(ONBOARDING_ROLE, deployer.address);
+      await accessManager.revokeRole(TOKEN_MANAGER_ROLE, deployer.address);
+      await accessManager.revokeRole(TREASURY_MANAGER_ROLE, deployer.address);
+      await accessManager.revokeRole(BACKEND_OPERATOR_ROLE, deployer.address);
+      await accessManager.revokeRole(DEFAULT_ADMIN_ROLE, deployer.address);
+      console.log("✅ All roles revoked from deployer");
+    } else {
+      console.log("\n⚠️  Skipping role transfer - admin wallet is same as deployer");
+    }
+
+    // 12. Save deployed addresses
+    console.log("\n📝 Saving deployed addresses...");
     const deployedAddresses = {
       proxy: proxyAddress,
       accessManager: accessManagerAddress,
@@ -139,35 +296,49 @@ async function main() {
       withdrawalManager: withdrawalManagerAddress
     };
     
-    updateConfigFile(deployedAddresses);
+    saveDeployedAddresses(network, deployedAddresses);
 
-    console.log("\n🎉 Deployment Summary:");
+    console.log(`\n🎉 Deployment and setup to ${NETWORKS[network as keyof typeof NETWORKS]} completed successfully!`);
     console.log("==========================================");
-    console.log(`DerampStorage:     ${storageAddress}`);
-    console.log(`DerampProxy:       ${proxyAddress}`);
-    console.log(`AccessManager:     ${accessManagerAddress}`);
-    console.log(`InvoiceManager:    ${invoiceManagerAddress}`);
-    console.log(`PaymentProcessor:  ${paymentProcessorAddress}`);
-    console.log(`TreasuryManager:   ${treasuryManagerAddress}`);
-    console.log(`WithdrawalManager: ${withdrawalManagerAddress}`);
+    console.log(`DerampStorage:      ${storageAddress}`);
+    console.log(`DerampProxy:        ${proxyAddress}`);
+    console.log(`AccessManager:      ${accessManagerAddress}`);
+    console.log(`InvoiceManager:     ${invoiceManagerAddress}`);
+    console.log(`PaymentProcessor:   ${paymentProcessorAddress}`);
+    console.log(`TreasuryManager:    ${treasuryManagerAddress}`);
+    console.log(`WithdrawalManager:  ${withdrawalManagerAddress}`);
     console.log("==========================================");
-    
-    console.log("\n🔧 Next Steps:");
-    console.log("1. ✅ Contract addresses automatically saved to config.ts");
-    console.log("2. Update team addresses in scripts/config.ts");
-    console.log("3. Add production tokens to scripts/config.ts");
-    console.log("4. Configure treasury wallet in scripts/config.ts");
-    console.log("5. Run validation: npx hardhat run scripts/validate-setup.ts");
-    console.log("6. Run production setup: npx hardhat run scripts/setup-production.ts --network <network>");
-    console.log("7. Run tests to verify functionality");
-    
-    console.log("\n✅ Complete modular system deployed successfully!");
+    console.log(`\n🔐 Admin wallet: ${baseConfig.ADMIN_WALLET}`);
+    if (baseConfig.ADMIN_WALLET.toLowerCase() !== deployer.address.toLowerCase()) {
+      console.log(`📝 Deployer wallet: ${deployer.address} (roles revoked)`);
+    } else {
+      console.log(`📝 Deployer wallet: ${deployer.address} (same as admin)`);
+    }
+    console.log(`\n📋 Setup Summary:`);
+    console.log(`- Team roles configured`);
+    console.log(`- ${tokensAdded} production tokens whitelisted`);
+    console.log(`- Treasury wallet configured`);
 
     return deployedAddresses;
 
   } catch (error) {
-    console.error("❌ Deployment failed:", error);
+    console.error(`❌ Deployment and setup to ${network} failed:`, error);
     throw error;
+  }
+}
+
+async function main() {
+  // Get network from hardhat environment
+  const network = process.env.HARDHAT_NETWORK || "hardhat";
+  
+  console.log(`🚀 Starting deployment and setup to ${network}...`);
+  
+  try {
+    await deployAndSetupToNetwork(network);
+    console.log(`\n✅ Deployment and setup to ${network} completed successfully!`);
+  } catch (error) {
+    console.error(`❌ Deployment and setup to ${network} failed:`, error);
+    process.exit(1);
   }
 }
 
