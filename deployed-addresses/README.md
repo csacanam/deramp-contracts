@@ -28,6 +28,7 @@ Each JSON file contains:
   "networkName": "Celo Alfajores Testnet",
   "deployedAt": "2024-01-15T10:30:00.000Z",
   "addresses": {
+    "storage": "0x...",
     "proxy": "0x...",
     "accessManager": "0x...",
     "invoiceManager": "0x...",

@@ -288,6 +288,7 @@ async function deployAndSetupToNetwork(network: string) {
     // 12. Save deployed addresses
     console.log("\n📝 Saving deployed addresses...");
     const deployedAddresses = {
+      storage: storageAddress,
       proxy: proxyAddress,
       accessManager: accessManagerAddress,
       invoiceManager: invoiceManagerAddress,

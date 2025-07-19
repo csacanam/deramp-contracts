@@ -69,25 +69,13 @@ const config: HardhatUserConfig = {
     },
   },
   etherscan: {
-    apiKey: {
-      // Base
-      base: process.env.BASESCAN_API_KEY || "",
-      baseTestnet: process.env.BASESCAN_API_KEY || "",
-      
-      // Polygon
-      polygon: process.env.POLYGONSCAN_API_KEY || "",
-      polygonTestnet: process.env.POLYGONSCAN_API_KEY || "",
-      
-      // BSC
-      bsc: process.env.BSCSCAN_API_KEY || "",
-      bscTestnet: process.env.BSCSCAN_API_KEY || "",
-    },
+    apiKey: process.env.ETHERSCAN_API_KEY || "",
     customChains: [
       {
         network: "base",
         chainId: 8453,
         urls: {
-          apiURL: "https://api.basescan.org/api",
+          apiURL: "https://api.etherscan.io/v2/api",
           browserURL: "https://basescan.org"
         }
       },
@@ -95,7 +83,7 @@ const config: HardhatUserConfig = {
         network: "baseTestnet",
         chainId: 84531,
         urls: {
-          apiURL: "https://api-goerli.basescan.org/api",
+          apiURL: "https://api.etherscan.io/v2/api",
           browserURL: "https://goerli.basescan.org"
         }
       },
@@ -103,7 +91,7 @@ const config: HardhatUserConfig = {
         network: "celo",
         chainId: 42220,
         urls: {
-          apiURL: "https://api.celoscan.io/api",
+          apiURL: "https://api.etherscan.io/v2/api",
           browserURL: "https://celoscan.io"
         }
       },
@@ -111,7 +99,7 @@ const config: HardhatUserConfig = {
         network: "celoTestnet",
         chainId: 44787,
         urls: {
-          apiURL: "https://api-alfajores.celoscan.io/api",
+          apiURL: "https://api.etherscan.io/v2/api",
           browserURL: "https://alfajores.celoscan.io"
         }
       },
@@ -119,7 +107,7 @@ const config: HardhatUserConfig = {
         network: "bsc",
         chainId: 56,
         urls: {
-          apiURL: "https://api.bscscan.com/api",
+          apiURL: "https://api.etherscan.io/v2/api",
           browserURL: "https://bscscan.com"
         }
       },
@@ -127,8 +115,24 @@ const config: HardhatUserConfig = {
         network: "bscTestnet",
         chainId: 97,
         urls: {
-          apiURL: "https://api-testnet.bscscan.com/api",
+          apiURL: "https://api.etherscan.io/v2/api",
           browserURL: "https://testnet.bscscan.com"
+        }
+      },
+      {
+        network: "polygon",
+        chainId: 137,
+        urls: {
+          apiURL: "https://api.etherscan.io/v2/api",
+          browserURL: "https://polygonscan.com"
+        }
+      },
+      {
+        network: "polygonTestnet",
+        chainId: 80001,
+        urls: {
+          apiURL: "https://api.etherscan.io/v2/api",
+          browserURL: "https://mumbai.polygonscan.com"
         }
       }
     ]
