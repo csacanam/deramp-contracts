@@ -1,200 +1,109 @@
-# Deramp Smart Contracts
+# Deramp - Modular Smart Contract System
 
-> **Modular payment processing system for blockchain invoicing, and treasury management**
+A comprehensive, modular smart contract system for payment processing, invoice management, and treasury operations built on Ethereum.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Hardhat](https://img.shields.io/badge/Built%20with-Hardhat-FFDB1C.svg)](https://hardhat.org/)
-[![Solidity](https://img.shields.io/badge/Solidity-%5E0.8.20-363636)](https://soliditylang.org/)
+## 🏗️ Architecture
 
-## Overview
+Deramp is built with a modular architecture that separates concerns and enables easy upgrades.
 
-Deramp is a production-ready, modular smart contract system designed for invoice management, payment processing, and treasury operations. Built with security, scalability, and maintainability in mind.
+### Core Components
+
+- **DerampProxy**: Main entry point that delegates calls to specialized modules
+- **DerampStorage**: Centralized storage contract for all system data
+- **AccessManager**: Role-based access control and whitelist management
 
 ### Key Features
 
-- 🧩 **Modular Architecture** - Upgradeable components under 24KB each
-- 🔐 **Role-Based Access Control** - Granular permissions system
-- 💰 **Multi-Token Support** - ERC20 token payments with configurable fees
-- 🏦 **Treasury Management** - Automated fee collection and distribution
-- 📊 **Analytics & Reporting** - Comprehensive transaction tracking
-- ⚡ **Gas Optimized** - Efficient proxy pattern implementation
-- 🔄 **Upgradeable** - Module-based upgrades without data loss
+- ✅ **Modular Design**: Easy to upgrade individual components
+- ✅ **Role-Based Access Control**: Granular permissions for different operations
+- ✅ **Multi-Token Support**: Support for any ERC20 token
+- ✅ **Comprehensive Testing**: 198+ tests covering all scenarios
 
-## Quick Start
-
-### Prerequisites
-
-- Node.js >= 16.0.0
-- npm or yarn
+## 🚀 Quick Start
 
 ### Installation
 
 ```bash
-# Clone the repository
 git clone <repository-url>
 cd deramp-contracts
-
-# Install dependencies
 npm install
+```
 
-# Compile contracts
-npx hardhat compile
+### Testing
+
+```bash
+# Run all tests
+npx hardhat test
 ```
 
 ### Deployment
 
 ```bash
-# Deploy to local network
-npx hardhat run scripts/deploy.ts
-
-# Deploy to testnet
-npx hardhat run scripts/deploy.ts --network goerli
-
-# Deploy to mainnet
-npx hardhat run scripts/deploy.ts --network mainnet
+# Deploy to local hardhat network
+npx hardhat run scripts/deploy.ts --network hardhat
 ```
 
-## Architecture
+## 📋 Test Coverage
 
-### Core Components
+The system includes comprehensive test coverage:
 
-| Contract              | Purpose                                | Size  |
-| --------------------- | -------------------------------------- | ----- |
-| **DerampProxy**       | Main entry point and request router    | ~18KB |
-| **DerampStorage**     | Centralized data repository            | ~22KB |
-| **AccessManager**     | Authentication and authorization       | ~20KB |
-| **InvoiceManager**    | Invoice lifecycle management           | ~19KB |
-| **PaymentProcessor**  | Payment processing and refunds         | ~21KB |
-| **WithdrawalManager** | Balance withdrawals and analytics      | ~18KB |
-| **TreasuryManager**   | Treasury operations and fee management | ~20KB |
+- **172 Unit Tests**: Individual module functionality
+- **26 E2E Tests**: Complete user workflows and edge cases
 
-### System Flow
+## 📁 Scripts
 
-```
-User/Commerce → DerampProxy → Business Logic Modules → DerampStorage
-                    ↓
-              Event Emissions & Response
-```
+### Available Scripts
 
-For detailed architecture documentation, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+- **`scripts/deploy.ts`**: Complete system deployment
+- **`scripts/setup-production.ts`**: Production configuration
+- **`scripts/README.md`**: Detailed deployment documentation
 
-## Usage Examples
-
-### Basic Invoice Creation
-
-```solidity
-// Create an invoice
-bytes32 invoiceId = keccak256("invoice-001");
-address commerce = 0x123...;
-PaymentOption[] memory options = [
-    PaymentOption(USDC_ADDRESS, 1000 * 10**6) // $1000 USDC
-];
-uint256 expirationTime = block.timestamp + 7 days;
-
-derampProxy.createInvoice(invoiceId, commerce, options, expirationTime);
-```
-
-### Processing Payment
-
-```solidity
-// Pay an invoice
-bytes32 invoiceId = keccak256("invoice-001");
-address token = USDC_ADDRESS;
-uint256 amount = 1000 * 10**6;
-
-// Approve tokens first
-IERC20(token).approve(address(derampProxy), amount);
-
-// Process payment
-derampProxy.payInvoice(invoiceId, token, amount);
-```
-
-## Configuration
-
-### Environment Setup
-
-Create a `.env` file:
-
-```bash
-# Network configuration
-INFURA_API_KEY=your_infura_key
-PRIVATE_KEY=your_private_key
-
-# Contract verification
-ETHERSCAN_API_KEY=your_etherscan_key
-
-# Gas reporting
-COINMARKETCAP_API_KEY=your_cmc_key
-```
-
-### Network Configuration
-
-Supported networks are configured in `hardhat.config.ts`:
-
-- Local hardhat network
-- Ethereum mainnet
-- Goerli testnet
-- Polygon mainnet
-- Mumbai testnet
-
-## Security
+## 🔐 Security Features
 
 ### Access Control
 
-The system implements role-based access control with the following roles:
+- **DEFAULT_ADMIN_ROLE**: Full system control
+- **ONBOARDING_ROLE**: Commerce and token whitelist management
+- **TOKEN_MANAGER_ROLE**: Token whitelist operations
+- **TREASURY_MANAGER_ROLE**: Treasury wallet management
+- **BACKEND_OPERATOR_ROLE**: Backend operations
 
-- `DEFAULT_ADMIN_ROLE` - System administration
-- `TOKEN_MANAGER_ROLE` - Token whitelist management
-- `ONBOARDING_ROLE` - Commerce whitelist management
-- `TREASURY_MANAGER_ROLE` - Treasury operations
-- `BACKEND_OPERATOR_ROLE` - Backend operations and invoice management
+## 📚 Documentation
 
-### Security Features
+### Additional Resources
 
-- ✅ OpenZeppelin security standards
-- ✅ Reentrancy protection
-- ✅ Pausable operations
-- ✅ Input validation
-- ✅ Access control on all functions
-- ✅ Emergency controls
+- **`docs/ARCHITECTURE.md`**: Detailed architecture documentation
+- **`scripts/README.md`**: Deployment and configuration guide
+- **Contract Comments**: Inline documentation in all contracts
 
-### Audits
-
-- [ ] Internal security review
-- [ ] External audit (pending)
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-### Development Guidelines
-
-- Follow the existing code style
-- Add tests for new features
-- Update documentation as needed
-- Ensure all tests pass before submitting
-
-## Documentation
-
-- [Architecture Guide](docs/ARCHITECTURE.md) - Detailed system architecture
-- [API Reference](docs/API.md) - Contract interfaces (coming soon)
-- [Deployment Guide](docs/DEPLOYMENT.md) - Production deployment (coming soon)
-
-## License
+## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Support
-
-- 📧 **Email**: [Insert contact email]
-- 💬 **Discord**: [Insert Discord link]
-- 🐛 **Issues**: [GitHub Issues](../../issues)
-- 📖 **Wiki**: [GitHub Wiki](../../wiki)
-
 ---
 
-**⚠️ Disclaimer**: This software is in active development. Use at your own risk in production environments.
+**Deramp** - Building the future of decentralized payment processing 🚀
+
+## 📁 Scripts
+
+### Available Scripts
+
+- **`scripts/deploy.ts`**: Clean system deployment (production-ready)
+- **`scripts/setup-production.ts`**: Production configuration (update addresses first)
+- **`scripts/README.md`**: Detailed deployment documentation
+
+### Quick Reference
+
+**For Production:**
+```bash
+# 1. Deploy
+npx hardhat run scripts/deploy.ts --network mainnet
+
+# 2. Configure (update addresses first)
+npx hardhat run scripts/setup-production.ts --network mainnet
+```
+
+**For Testing:**
+```bash
+# Complete deployment with verification
+```
