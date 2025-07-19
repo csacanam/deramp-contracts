@@ -1,6 +1,6 @@
 # Deramp Deployment Scripts
 
-This directory contains the essential scripts to deploy and configure the Deramp system in production.
+Essential scripts to deploy and configure the Deramp system.
 
 ## Available Scripts
 
@@ -19,7 +19,7 @@ npx hardhat run scripts/deploy.ts --network <network-name>
 - Deploys all modules (AccessManager, InvoiceManager, PaymentProcessor, TreasuryManager, WithdrawalManager)
 - Configures contract relationships
 - Authorizes modules in storage
-- Sets up initial roles (deployer gets admin role automatically)
+- **Automatically updates `scripts/config.ts` with deployed addresses**
 
 ### 2. `setup-production.ts` - Production Configuration
 
@@ -33,12 +33,12 @@ npx hardhat run scripts/setup-production.ts --network <network-name>
 
 - Assigns roles to team members
 - Adds production tokens to whitelist
-- Configures treasury wallets
+- Configures treasury wallet
 - Verifies security configurations
 
-**⚠️ Important:** Update the addresses in the script before running it.
+**⚠️ Important:** Update the addresses in `scripts/config.ts` before running it.
 
-## Complete Deployment Process
+## Deployment Process
 
 ### Step 1: Initial Deployment
 
@@ -48,20 +48,16 @@ npx hardhat run scripts/deploy.ts --network mainnet
 
 ### Step 2: Configure Addresses
 
-After deployment, copy the contract addresses and update:
+After deployment, update the following in `scripts/config.ts`:
 
-- `scripts/setup-production.ts`
+- Team member addresses
+- Production token addresses
+- Treasury wallet address
 
 ### Step 3: Production Configuration
 
 ```bash
 npx hardhat run scripts/setup-production.ts --network mainnet
-```
-
-### Step 4: Verify Functionality
-
-```bash
-npx hardhat test
 ```
 
 ## Network Configuration
@@ -157,12 +153,12 @@ npx hardhat verify --network mainnet <contract-address> [constructor-arguments]
 ## Deployment Checklist
 
 - [ ] Configure environment variables
-- [ ] Run initial deployment
-- [ ] Copy contract addresses
-- [ ] Update setup-production.ts with addresses
-- [ ] Configure team roles
-- [ ] Add production tokens
-- [ ] Configure treasury wallets
+- [ ] Run initial deployment: `npx hardhat run scripts/deploy.ts --network <network>`
+- [ ] ✅ Contract addresses automatically saved to `scripts/config.ts`
+- [ ] Update team member addresses in `scripts/config.ts`
+- [ ] Add production token addresses in `scripts/config.ts`
+- [ ] Configure treasury wallet address in `scripts/config.ts`
+- [ ] Run production setup: `npx hardhat run scripts/setup-production.ts --network <network>`
 - [ ] Run tests to verify functionality
 - [ ] Verify contracts on Etherscan
 - [ ] Set up monitoring and alerts

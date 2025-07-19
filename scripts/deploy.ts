@@ -1,4 +1,32 @@
 import { ethers } from "hardhat";
+import * as fs from "fs";
+import * as path from "path";
+
+// Function to update config.ts with deployed addresses
+function updateConfigFile(deployedAddresses: any) {
+  const configPath = path.join(__dirname, "config.ts");
+  
+  // Read current config file
+  let configContent = fs.readFileSync(configPath, "utf8");
+  
+  // Update contract addresses
+  const contractAddressesRegex = /export const CONTRACT_ADDRESSES = \{[\s\S]*?\};/;
+  const newContractAddresses = `export const CONTRACT_ADDRESSES = {
+  proxy: "${deployedAddresses.proxy}",
+  accessManager: "${deployedAddresses.accessManager}",
+  invoiceManager: "${deployedAddresses.invoiceManager}",
+  paymentProcessor: "${deployedAddresses.paymentProcessor}",
+  treasuryManager: "${deployedAddresses.treasuryManager}",
+  withdrawalManager: "${deployedAddresses.withdrawalManager}",
+};`;
+  
+  configContent = configContent.replace(contractAddressesRegex, newContractAddresses);
+  
+  // Write updated config back to file
+  fs.writeFileSync(configPath, configContent, "utf8");
+  
+  console.log("✅ Config file updated with deployed addresses");
+}
 
 async function main() {
   try {
@@ -100,6 +128,18 @@ async function main() {
     await storage.setModule("TreasuryManager", treasuryManagerAddress);
     console.log("✅ Storage modules authorized");
 
+    // 10. Update config file with deployed addresses
+    console.log("\n📝 Updating config file...");
+    const deployedAddresses = {
+      proxy: proxyAddress,
+      accessManager: accessManagerAddress,
+      invoiceManager: invoiceManagerAddress,
+      paymentProcessor: paymentProcessorAddress,
+      treasuryManager: treasuryManagerAddress,
+      withdrawalManager: withdrawalManagerAddress
+    };
+    
+    updateConfigFile(deployedAddresses);
 
     console.log("\n🎉 Deployment Summary:");
     console.log("==========================================");
@@ -113,24 +153,17 @@ async function main() {
     console.log("==========================================");
     
     console.log("\n🔧 Next Steps:");
-    console.log("1. Grant roles to team members using AccessManager");
-    console.log("2. Add production tokens to whitelist");
-    console.log("3. Add commerces to whitelist");
-    console.log("4. Configure treasury wallets");
-    console.log("5. Set up monitoring and alerts");
-    console.log("6. Run tests to verify functionality");
+    console.log("1. ✅ Contract addresses automatically saved to config.ts");
+    console.log("2. Update team addresses in scripts/config.ts");
+    console.log("3. Add production tokens to scripts/config.ts");
+    console.log("4. Configure treasury wallet in scripts/config.ts");
+    console.log("5. Run validation: npx hardhat run scripts/validate-setup.ts");
+    console.log("6. Run production setup: npx hardhat run scripts/setup-production.ts --network <network>");
+    console.log("7. Run tests to verify functionality");
     
     console.log("\n✅ Complete modular system deployed successfully!");
 
-    return {
-      storage: storageAddress,
-      proxy: proxyAddress,
-      accessManager: accessManagerAddress,
-      invoiceManager: invoiceManagerAddress,
-      paymentProcessor: paymentProcessorAddress,
-      treasuryManager: treasuryManagerAddress,
-      withdrawalManager: withdrawalManagerAddress
-    };
+    return deployedAddresses;
 
   } catch (error) {
     console.error("❌ Deployment failed:", error);
