@@ -1,7 +1,7 @@
 {
   "network": "hardhat",
   "networkName": "Hardhat Local Network",
-  "deployedAt": "2025-07-19T22:01:56.036Z",
+  "deployedAt": "2025-07-20T00:19:02.010Z",
   "addresses": {
     "storage": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
     "proxy": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
